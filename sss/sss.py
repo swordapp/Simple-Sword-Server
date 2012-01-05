@@ -1,8 +1,8 @@
 """ SSS - Simple SWORD Server """
 
-__version__ = "0.1"
-__author__ = ["Richard Jones <richard@oneoverzero.com>"]
-__license__ = "public domain"
+__version__ = "2.0"
+__author__ = ["Richard Jones <richard@cottagelabs.com>"]
+__license__ = "bsd"
 
 import web, uuid, os, re, base64, hashlib, urllib, sys, logging, logging.config
 from lxml import etree
@@ -24,7 +24,7 @@ if ssl:
 
 class SSSLogger(object):
     def __init__(self):
-        self.logging_config = "./sword2_logging.conf"  # default
+        self.logging_config = "./sss_logging.conf"  # default
         self.basic_config = """[loggers]
 keys=root
 
