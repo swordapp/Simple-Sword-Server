@@ -1,17 +1,15 @@
 import os, hashlib, uuid
-from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, SSSLogger, Namespaces
+from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Namespaces
 from lxml import etree
 from datetime import datetime
 from zipfile import ZipFile
-from sss_logging import SSSLogger
 
 # create the global configuration
 from config import CherryPyConfiguration
 global_configuration = CherryPyConfiguration()
 
-# get the global logger
-sssl = SSSLogger()
-ssslog = sssl.getLogger()
+from sss_logging import logging
+ssslog = logging.getLogger(__name__)
 
 class SWORDServer(object):
     """

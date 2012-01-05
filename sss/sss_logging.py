@@ -1,9 +1,13 @@
-import logging, logging.config, os
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-class SSSLogger(object):
-    def __init__(self):
-        self.logging_config = "./sss_logging.conf"  # default
-        self.basic_config = """[loggers]
+import logging
+import logging.config
+from os import path as os_path
+
+SSS_LOGGING_CONFIG = "./sss_logging.conf"  # default
+
+BASIC_CONFIG = """[loggers]
 keys=root
 
 [handlers]
@@ -26,16 +30,13 @@ args=(sys.stdout,)
 format=%(asctime)s - %(name)s - %(levelname)s - %(message)s
 """
 
-        if not os.path.isfile(self.logging_config):
-            self.create_logging_config(self.logging_config)
+def create_logging_config(pathtologgingconf):
+    fn = open(pathtologgingconf, "w")
+    fn.write(BASIC_CONFIG)
+    fn.close()
 
-        logging.config.fileConfig(self.logging_config)
+if not os_path.isfile(SSS_LOGGING_CONFIG):
+    create_logging_config(SSS_LOGGING_CONFIG)
 
-    def create_logging_config(self, pathtologgingconf):
-        fn = open(pathtologgingconf, "w")
-        fn.write(self.basic_config)
-        fn.close()
-        
-    def getLogger(self):
-        return logging.getLogger(__name__)
-        
+logging.config.fileConfig(SSS_LOGGING_CONFIG)
+

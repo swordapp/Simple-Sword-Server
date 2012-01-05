@@ -1,11 +1,13 @@
 import web, re, base64, urllib, uuid
 from web.wsgiserver import CherryPyWSGIServer
 from config import CherryPyConfiguration
-from core import Auth, SWORDSpec, SSSLogger
+from core import Auth, SWORDSpec
 from repository import SWORDServer
 from negotiator import ContentNegotiator, ContentType
 from webui import HomePage, CollectionPage, ItemPage
-from sss_logging import SSSLogger
+
+from sss_logging import logging
+ssslog = logging.getLogger(__name__)
 
 # Whether to run using SSL.  This uses a default self-signed certificate.  Change the paths to
 # use an alternative set of keys
@@ -954,10 +956,6 @@ class URIManager(object):
 
 # create the global configuration
 global_configuration = CherryPyConfiguration()
-
-# get the global logger
-sssl = SSSLogger()
-ssslog = sssl.getLogger()
 
 # if we run the file as a mod_wsgi module, do this
 application = web.application(urls, globals()).wsgifunc()

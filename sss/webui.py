@@ -3,12 +3,10 @@ from repository import DAO
 
 # create the global configuration
 from config import CherryPyConfiguration
-from sss_logging import SSSLogger
 global_configuration = CherryPyConfiguration()
 
-# get the global logger
-sssl = SSSLogger()
-ssslog = sssl.getLogger()
+from sss_logging import logging
+ssslog = logging.getLogger(__name__)
 
 # Basic Web Interface
 #######################################################################

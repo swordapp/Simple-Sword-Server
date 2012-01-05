@@ -2,6 +2,9 @@ import os, uuid, sys
 from negotiator import ContentType
 from ingesters_disseminators import DefaultEntryIngester, DefaultDisseminator, FeedDisseminator, BinaryIngester, SimpleZipIngester, METSDSpaceIngester
 
+from sss_logging import logging
+ssslog = logging.getLogger(__name__)
+
 class Configuration(object):
     def __init__(self):
         # The base url of the webservice where SSS is deployed

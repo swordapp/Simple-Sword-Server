@@ -1,10 +1,8 @@
 from zipfile import ZipFile
 from lxml import etree
 
-# get the global logger
-from sss_logging import SSSLogger
-sssl = SSSLogger()
-ssslog = sssl.getLogger()
+from sss_logging import logging
+ssslog = logging.getLogger(__name__)
 
 # FIXME: this is a duplicate of the one in core.  We need to sort out our
 # circular imports *urgh*

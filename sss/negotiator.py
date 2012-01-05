@@ -1,7 +1,5 @@
-# get the global logger
-from sss_logging import SSSLogger
-sssl = SSSLogger()
-ssslog = sssl.getLogger()
+from sss_logging import logging
+ssslog = logging.getLogger(__name__)
 
 # CONTENT NEGOTIATION
 #######################################################################

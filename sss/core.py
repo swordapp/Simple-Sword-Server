@@ -1,11 +1,9 @@
 import web, os, base64
 from lxml import etree
-from sss_logging import SSSLogger
 from datetime import datetime
 
-# get the global logger
-sssl = SSSLogger()
-ssslog = sssl.getLogger()
+from sss_logging import logging
+ssslog = logging.getLogger(__name__)
 
 # create the global configuration
 from config import CherryPyConfiguration
