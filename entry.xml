@@ -1,0 +1,69 @@
+<?xml version="1.0"?>
+<entry xmlns="http://www.w3.org/2005/Atom"
+        xmlns:dcterms="http://purl.org/dc/terms/">
+    <title>The Beach</title>
+    <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a</id>
+    <updated>2005-10-07T17:17:08Z</updated>
+    <author><name>Daffy</name></author>
+    <summary type="text">A nice sunset picture over the water.</summary>
+    <content src="cid:99334422@example.com" type="application/zip" />
+
+    <!-- now some embedded metadata -->
+    <!-- edit as you see fit -->
+    <dcterms:abstract>The abstract</dcterms:abstract>
+    <dcterms:accessRights>Access Rights</dcterms:accessRights>
+    <dcterms:accrualMethod>Accrual Method</dcterms:accrualMethod>
+    <dcterms:accrualPeriodicity>Accrual Periodicity</dcterms:accrualPeriodicity>
+    <dcterms:accrualPolicy>Accrual Policy</dcterms:accrualPolicy>
+    <dcterms:alternative>Alternative Title</dcterms:alternative>
+    <dcterms:audience>Audience</dcterms:audience>
+    <dcterms:available>Date Available</dcterms:available>
+    <dcterms:bibliographicCitation>Bibliographic Citation</dcterms:bibliographicCitation>
+    <dcterms:conformsTo>Conforms to</dcterms:conformsTo>
+    <dcterms:contributor>Contributor</dcterms:contributor>
+    <dcterms:coverage>Coverage</dcterms:coverage>
+    <dcterms:created>Date Created</dcterms:created>
+    <dcterms:creator>Creator</dcterms:creator>
+    <dcterms:date>Date</dcterms:date>
+    <dcterms:dateAccepted>Date Accepted</dcterms:dateAccepted>
+    <dcterms:dateCopyrighted>Date Copyrighted</dcterms:dateCopyrighted>
+    <dcterms:dateSubmitted>Date Submitted</dcterms:dateSubmitted>
+    <dcterms:description>Description</dcterms:description>
+    <dcterms:educationLevel>Education Level</dcterms:educationLevel>
+    <dcterms:extent>Extent</dcterms:extent>
+    <dcterms:format>Format</dcterms:format>
+    <dcterms:hasFormat>Has Format</dcterms:hasFormat>
+    <dcterms:hasPart>Has Part</dcterms:hasPart>
+    <dcterms:hasVersion>Has Version</dcterms:hasVersion>
+    <dcterms:identifier>Identifier</dcterms:identifier>
+    <dcterms:instructionalMethod>Instructional Method</dcterms:instructionalMethod>
+    <dcterms:isFormatOf>Is Format Of</dcterms:isFormatOf>
+    <dcterms:isPartOf>Is Part Of</dcterms:isPartOf>
+    <dcterms:isReferencedBy>Is Referenced By</dcterms:isReferencedBy>
+    <dcterms:isReplacedBy>Is Replaced By</dcterms:isReplacedBy>
+    <dcterms:isRequiredBy>Is Required By</dcterms:isRequiredBy>
+    <dcterms:issued>Date Issued</dcterms:issued>
+    <dcterms:isVersionOf>Is Version Of</dcterms:isVersionOf>
+    <dcterms:language>Language</dcterms:language>
+    <dcterms:license>Licence</dcterms:license>
+    <dcterms:mediator>Mediator</dcterms:mediator>
+    <dcterms:medium>Medium</dcterms:medium>
+    <dcterms:modified>Date Modified</dcterms:modified>
+    <dcterms:provenance>Provenance</dcterms:provenance>
+    <dcterms:publisher>Publisher</dcterms:publisher>
+    <dcterms:references>References</dcterms:references>
+    <dcterms:relation>Relation</dcterms:relation>
+    <dcterms:replaces>Replaces</dcterms:replaces>
+    <dcterms:requires>Reqires</dcterms:requires>
+    <dcterms:rights>Rights</dcterms:rights>
+    <dcterms:rightsHolder>Rights Holder</dcterms:rightsHolder>
+    <dcterms:source>Source</dcterms:source>
+    <dcterms:spatial>Spatial</dcterms:spatial>
+    <dcterms:subject>Subject</dcterms:subject>
+    <dcterms:tableOfContents>T.O.C</dcterms:tableOfContents>
+    <dcterms:temporal>Temporal</dcterms:temporal>
+    <dcterms:title>Title</dcterms:title>
+    <dcterms:type>Type</dcterms:type>
+    <dcterms:valid>Valid</dcterms:valid>
+
+</entry>
