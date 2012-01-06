@@ -1,5 +1,4 @@
 import os, uuid, sys, json
-from negotiator import ContentType
 from ingesters_disseminators import DefaultEntryIngester, DefaultDisseminator, FeedDisseminator, BinaryIngester, SimpleZipIngester, METSDSpaceIngester
 
 from sss_logging import logging
