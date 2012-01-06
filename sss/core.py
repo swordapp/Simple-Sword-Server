@@ -5,10 +5,6 @@ from datetime import datetime
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
 
-# create the global configuration
-from config import CherryPyConfiguration
-global_configuration = CherryPyConfiguration()
-
 # FIXME: SWORDSpec has a lot of webpy stuff in it; needs to be cleaned and
 # divided
 
@@ -196,7 +192,10 @@ class SWORDSpec(object):
     the entities with which SWORD works.  The jury is out, in my mind, whether this class is a useful separation, but
     for what it's worth, here it is ...
     """
-    def __init__(self):
+    def __init__(self, config):
+    
+        self.config = config
+    
         # FIXME: this is a webpy thing ...
         # The HTTP headers that are part of the specification (from a web.py perspective - don't be fooled, these
         # aren't the real HTTP header names - see the spec)
@@ -293,7 +292,7 @@ class SWORDSpec(object):
                 if dict[head] == "0":
                     empty_request = True
                 cl = int(dict[head]) # content length as an integer
-                if cl > global_configuration.max_upload_size:
+                if cl > self.config.max_upload_size:
                     d.too_large = True
                     return d
 

@@ -4,10 +4,6 @@ from lxml import etree
 from datetime import datetime
 from zipfile import ZipFile
 
-# create the global configuration
-from config import CherryPyConfiguration
-global_configuration = CherryPyConfiguration()
-
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
 
@@ -16,13 +12,13 @@ class SWORDServer(object):
     The main SWORD Server class.  This class deals with all the CRUD requests as provided by the web.py HTTP
     handlers
     """
-    def __init__(self, uri_manager):
+    def __init__(self, config, uri_manager):
 
         # get the configuration
-        self.configuration = global_configuration
+        self.configuration = config
 
         # create a DAO for us to use
-        self.dao = DAO()
+        self.dao = DAO(self.configuration)
 
         # create a Namespace object for us to use
         self.ns = Namespaces()
@@ -165,7 +161,7 @@ class SWORDServer(object):
 
         # store the incoming atom document if necessary
         if deposit.atom is not None:
-            entry_ingester = self.configuration.entry_ingester(self.dao)
+            entry_ingester = self.configuration.get_entry_ingester()(self.dao)
             entry_ingester.ingest(collection, id, deposit.atom)
 
         # store the content file if one exists, and do some processing on it
@@ -180,7 +176,8 @@ class SWORDServer(object):
             # FIXME: because the deposit interpreter doesn't deal with multipart properly
             # we don't get the correct packaging format here if the package is anything
             # other than Binary
-            packager = self.configuration.package_ingesters[deposit.packaging](self.dao)
+            ssslog.info("attempting to load ingest packager for format " + str(deposit.packaging))
+            packager = self.configuration.get_package_ingester(deposit.packaging)(self.dao)
             derived_resources = packager.ingest(collection, id, fn, deposit.metadata_relevant)
 
             # An identifier which will resolve to the package just deposited
@@ -266,7 +263,7 @@ class SWORDServer(object):
             return mr
         
         # call the appropriate packager, and get back the filepath for the response
-        packager = self.configuration.package_disseminators[content_type.media_format()](self.dao, self.um)
+        packager = self.configuration.get_package_disseminator(content_type.media_format())(self.dao, self.um)
         mr.filepath = packager.package(collection, id)
         mr.packaging = packager.get_uri()
 
@@ -295,7 +292,7 @@ class SWORDServer(object):
         keep_atom = False
         if deposit.atom is not None:
             ssslog.info("Replace request has ATOM part - updating")
-            entry_ingester = self.configuration.entry_ingester(self.dao)
+            entry_ingester = self.configuration.get_entry_ingester()(self.dao)
             entry_ingester.ingest(collection, id, deposit.atom)
             keep_atom = True
             
@@ -315,7 +312,7 @@ class SWORDServer(object):
             # now that we have stored the atom and the content, we can invoke a package ingester over the top to extract
             # all the metadata and any files we want.  Notice that we pass in the metadata_relevant flag, so the
             # packager won't overwrite the existing metadata if it isn't supposed to
-            packager = self.configuration.package_ingesters[deposit.packaging](self.dao)
+            packager = self.configuration.get_package_ingester(deposit.packaging)(self.dao)
             derived_resources = packager.ingest(collection, id, fn, deposit.metadata_relevant)
             ssslog.debug("Resources derived from deposit: " + str(derived_resources))
         
@@ -451,7 +448,7 @@ class SWORDServer(object):
             fn = self.dao.store_content(collection, id, deposit.content, deposit.filename)
             ssslog.debug("New incoming file stored with filename " + fn)
                 
-            packager = self.configuration.package_ingesters[deposit.packaging](self.dao)
+            packager = self.configuration.get_package_ingester(deposit.packaging)(self.dao)
             derived_resources = packager.ingest(collection, id, fn, deposit.metadata_relevant)
             ssslog.debug("Resources derived from deposit: " + str(derived_resources))
 
@@ -562,7 +559,7 @@ class SWORDServer(object):
             # (if possible).  For a purist implementation, then, we mark additive=True
             # in the call to the ingest method, so all metadata is added to whatever
             # is already there
-            entry_ingester = self.configuration.entry_ingester(self.dao)
+            entry_ingester = self.configuration.get_entry_ingester()(self.dao)
             entry_ingester.ingest(collection, id, deposit.atom, True)
 
         # store the content file
@@ -577,7 +574,7 @@ class SWORDServer(object):
             # now that we have stored the atom and the content, we can invoke a package ingester over the top to extract
             # all the metadata and any files we want.  Notice that we pass in the metadata_relevant flag, so the packager
             # won't overwrite the metadata if it isn't supposed to
-            pclass = self.configuration.package_ingesters.get(deposit.packaging)
+            pclass = self.configuration.get_package_ingester(deposit.packaging)
             if pclass is not None:
                 packager = pclass(self.dao)
                 derived_resources = packager.ingest(collection, id, fn, deposit.metadata_relevant)
@@ -858,7 +855,7 @@ class SWORDServer(object):
         # have we been asked to do a mediated delete, when this is not allowed?
         if delete.auth is not None:
             if delete.auth.obo is not None and not self.configuration.mediation:
-                spec = SWORDSpec()
+                spec = SWORDSpec(self.configuration)
                 dr = DepositResponse()
                 error_doc = self.sword_error(spec.error_mediation_not_allowed_uri)
                 dr.error = error_doc
@@ -870,7 +867,7 @@ class SWORDServer(object):
         # have we been asked to do a mediated deposit, when this is not allowed?
         if deposit.auth is not None:
             if deposit.auth.obo is not None and not self.configuration.mediation:
-                spec = SWORDSpec()
+                spec = SWORDSpec(self.configuration)
                 dr = DepositResponse()
                 error_doc = self.sword_error(spec.error_mediation_not_allowed_uri)
                 dr.error = error_doc
@@ -881,7 +878,7 @@ class SWORDServer(object):
     def check_deposit_errors(self, deposit):
         # have we been asked for an invalid package format
         if deposit.packaging == self.configuration.error_content_package:
-            spec = SWORDSpec()
+            spec = SWORDSpec(self.configuration)
             dr = DepositResponse()
             error_doc = self.sword_error(spec.error_content_uri, "Unsupported Packaging format specified")
             dr.error = error_doc
@@ -894,7 +891,7 @@ class SWORDServer(object):
             m.update(deposit.content)
             digest = m.hexdigest()
             if digest != deposit.content_md5:
-                spec = SWORDSpec()
+                spec = SWORDSpec(self.configuration)
                 dr = DepositResponse()
                 error_doc = self.sword_error(spec.error_checksum_mismatch_uri, "Content-MD5 header does not match file checksum")
                 dr.error = error_doc
@@ -904,7 +901,7 @@ class SWORDServer(object):
         # have we been asked to do a mediated deposit, when this is not allowed?
         if deposit.auth is not None:
             if deposit.auth.obo is not None and not self.configuration.mediation:
-                spec = SWORDSpec()
+                spec = SWORDSpec(self.configuration)
                 dr = DepositResponse()
                 error_doc = self.sword_error(spec.error_mediation_not_allowed_uri)
                 dr.error = error_doc
@@ -917,7 +914,7 @@ class DAO(object):
     """
     Data Access Object for interacting with the store
     """
-    def __init__(self):
+    def __init__(self, config):
         """
         Initialise the DAO.  This creates the store directory in the Configuration() object if it does not already
         exist and will construct the relevant number of fake collections.  In general if you make changes to the
@@ -925,7 +922,7 @@ class DAO(object):
         this method will check to see that it has enough fake collections and make up the defecit, but it WILL NOT
         remove excess collections
         """
-        self.configuration = global_configuration
+        self.configuration = config
 
         # first thing to do is create the store if it does not already exist
         print self.configuration.store_dir

@@ -1,10 +1,6 @@
 import os
 from repository import DAO
 
-# create the global configuration
-from config import CherryPyConfiguration
-global_configuration = CherryPyConfiguration()
-
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
 
@@ -19,12 +15,13 @@ class HomePage(WebPage):
     """
     Welcome / home page
     """
-    def __init__(self, uri_manager):
-        self.dao = DAO()
+    def __init__(self, config, uri_manager):
+        self.config = config
+        self.dao = DAO(self.config)
         self.um = uri_manager
         
     def get_home_page(self):
-        cfg = global_configuration
+        cfg = self.config
         
         frag = "<h1>Simple SWORDv2 Server</h1>"
         frag += "<p><strong>Service Document (SD-IRI)</strong>: <a href=\"" + cfg.base_url + "sd-uri\">" + cfg.base_url + "sd-uri</a></p>"

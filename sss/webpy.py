@@ -1,6 +1,5 @@
 import web, re, base64, urllib, uuid
 from web.wsgiserver import CherryPyWSGIServer
-from config import CherryPyConfiguration
 from core import Auth, SWORDSpec
 from repository import SWORDServer
 from negotiator import ContentNegotiator, ContentType
@@ -8,6 +7,10 @@ from webui import HomePage, CollectionPage, ItemPage
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
+
+# create the global configuration
+from config import Configuration
+config = Configuration()
 
 # Whether to run using SSL.  This uses a default self-signed certificate.  Change the paths to
 # use an alternative set of keys
@@ -51,7 +54,7 @@ class SwordHttpHandler(object):
         auth = web.ctx.env.get('HTTP_AUTHORIZATION')
         obo = web.ctx.env.get("HTTP_ON_BEHALF_OF")
 
-        cfg = global_configuration
+        cfg = config
 
         # we may have turned authentication off for development purposes
         if not cfg.authenticate:
@@ -101,8 +104,8 @@ class ServiceDocument(SwordHttpHandler):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -110,9 +113,9 @@ class ServiceDocument(SwordHttpHandler):
             return
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(URIManager())
+        ss = SWORDServer(config, URIManager())
         web.header("Content-Type", "text/xml")
-        use_sub = global_configuration.use_sub if sub is None else False
+        use_sub = config.use_sub if sub is None else False
         return ss.service_document(use_sub)
 
 class Collection(SwordHttpHandler):
@@ -132,8 +135,8 @@ class Collection(SwordHttpHandler):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -141,7 +144,7 @@ class Collection(SwordHttpHandler):
             return
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(URIManager())
+        ss = SWORDServer(config, URIManager())
         web.header("Content-Type", "text/xml")
         return ss.list_collection(collection)
         
@@ -158,8 +161,8 @@ class Collection(SwordHttpHandler):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -167,8 +170,8 @@ class Collection(SwordHttpHandler):
             return
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(URIManager())
-        spec = SWORDSpec()
+        ss = SWORDServer(config, URIManager())
+        spec = SWORDSpec(config)
 
         # check the validity of the request
         invalid = spec.validate_deposit_request(web)
@@ -190,22 +193,22 @@ class Collection(SwordHttpHandler):
         if result is None:
             return web.notfound()
 
-        cfg = global_configuration
+        cfg = config
 
         # created, accepted, or error
         if result.created:
-            print cfg.rid + " Item created"
+            ssslog.info("Item created")
             web.header("Content-Type", "application/atom+xml;type=entry")
             web.header("Location", result.location)
             web.ctx.status = "201 Created"
             if cfg.return_deposit_receipt:
-                print cfg.rid + " Returning deposit receipt"
+                ssslog.info("Returning deposit receipt")
                 return result.receipt
             else:
-                print cfg.rid + " Omitting deposit receipt"
+                ssslog.info("Omitting deposit receipt")
                 return
         else:
-            print cfg.rid + " Returning Error"
+            ssslog.info("Returning Error")
             web.header("Content-Type", "text/xml")
             web.ctx.status = result.error_code
             return result.error
@@ -235,8 +238,8 @@ class MediaResourceContent(SwordHttpHandler):
         
         # NOTE: this method is not authenticated - we imagine sharing this URL with end-users who will just want
         # to retrieve the content.  It's only for the purposes of example, anyway
-        ss = SWORDServer(URIManager())
-        spec = SWORDSpec()
+        ss = SWORDServer(config, URIManager())
+        spec = SWORDSpec(config)
 
         # first thing we need to do is check that there is an object to return, because otherwise we may throw a
         # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
@@ -306,10 +309,10 @@ class MediaResource(MediaResourceContent):
         ssslog.debug("PUT on Media Resource (replace); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if update is allowed
-        cfg = global_configuration
+        cfg = config
         if not cfg.allow_update:
-            spec = SWORDSpec()
-            ss = SWORDServer(URIManager())
+            spec = SWORDSpec(config)
+            ss = SWORDServer(config, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -319,8 +322,8 @@ class MediaResource(MediaResourceContent):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -328,8 +331,8 @@ class MediaResource(MediaResourceContent):
             return
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(URIManager())
-        spec = SWORDSpec()
+        ss = SWORDServer(config, URIManager())
+        spec = SWORDSpec(config)
 
         # check the validity of the request (note that multipart requests are not permitted in this method)
         invalid = spec.validate_deposit_request(web, allow_multipart=False)
@@ -377,10 +380,10 @@ class MediaResource(MediaResourceContent):
         ssslog.debug("DELETE on Media Resource (remove content, leave container); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if delete is allowed
-        cfg = global_configuration
+        cfg = config
         if not cfg.allow_delete:
-            spec = SWORDSpec()
-            ss = SWORDServer(URIManager())
+            spec = SWORDSpec(config)
+            ss = SWORDServer(config, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Delete operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -390,8 +393,8 @@ class MediaResource(MediaResourceContent):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -399,8 +402,8 @@ class MediaResource(MediaResourceContent):
             return
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(URIManager())
-        spec = SWORDSpec()
+        ss = SWORDServer(config, URIManager())
+        spec = SWORDSpec(config)
 
         # check the validity of the request
         invalid = spec.validate_delete_request(web)
@@ -439,10 +442,10 @@ class MediaResource(MediaResourceContent):
         ssslog.debug("POST to Media Resource (add new file); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if update is allowed
-        cfg = global_configuration
+        cfg = config
         if not cfg.allow_update:
-            spec = SWORDSpec()
-            ss = SWORDServer(URIManager())
+            spec = SWORDSpec(config)
+            ss = SWORDServer(config, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -452,8 +455,8 @@ class MediaResource(MediaResourceContent):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -461,8 +464,8 @@ class MediaResource(MediaResourceContent):
             return
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(URIManager())
-        spec = SWORDSpec()
+        ss = SWORDServer(config, URIManager())
+        spec = SWORDSpec(config)
 
         # check the validity of the request
         invalid = spec.validate_deposit_request(web)
@@ -489,7 +492,7 @@ class MediaResource(MediaResourceContent):
         if result is None:
             return web.notfound()
 
-        cfg = global_configuration
+        cfg = config
 
         # created, accepted, or error
         if result.created:
@@ -525,8 +528,8 @@ class Container(SwordHttpHandler):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -534,7 +537,7 @@ class Container(SwordHttpHandler):
             return
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(URIManager())
+        ss = SWORDServer(config, URIManager())
 
         # first thing we need to do is check that there is an object to return, because otherwise we may throw a
         # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
@@ -579,10 +582,10 @@ class Container(SwordHttpHandler):
         ssslog.debug("PUT on Container (replace); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if update is allowed
-        cfg = global_configuration
+        cfg = config
         if not cfg.allow_update:
-            spec = SWORDSpec()
-            ss = SWORDServer(URIManager())
+            spec = SWORDSpec(config)
+            ss = SWORDServer(config, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -592,8 +595,8 @@ class Container(SwordHttpHandler):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -601,8 +604,8 @@ class Container(SwordHttpHandler):
             return
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(URIManager())
-        spec = SWORDSpec()
+        ss = SWORDServer(config, URIManager())
+        spec = SWORDSpec(config)
 
         # check the validity of the request
         invalid = spec.validate_deposit_request(web)
@@ -658,10 +661,10 @@ class Container(SwordHttpHandler):
         ssslog.debug("POST to Container (add new content and metadata); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if update is allowed
-        cfg = global_configuration
+        cfg = config
         if not cfg.allow_update:
-            spec = SWORDSpec()
-            ss = SWORDServer(URIManager())
+            spec = SWORDSpec(config)
+            ss = SWORDServer(config, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -671,8 +674,8 @@ class Container(SwordHttpHandler):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -680,8 +683,8 @@ class Container(SwordHttpHandler):
             return
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(URIManager())
-        spec = SWORDSpec()
+        ss = SWORDServer(config, URIManager())
+        spec = SWORDSpec(config)
 
         # check the validity of the request
         invalid = spec.validate_deposit_request(web)
@@ -733,10 +736,10 @@ class Container(SwordHttpHandler):
         ssslog.debug("DELETE on Container (remove); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if update is allowed
-        cfg = global_configuration
+        cfg = config
         if not cfg.allow_delete:
-            spec = SWORDSpec()
-            ss = SWORDServer(URIManager())
+            spec = SWORDSpec(config)
+            ss = SWORDServer(config, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Delete operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -746,8 +749,8 @@ class Container(SwordHttpHandler):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -755,8 +758,8 @@ class Container(SwordHttpHandler):
             return
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(URIManager())
-        spec = SWORDSpec()
+        ss = SWORDServer(config, URIManager())
+        spec = SWORDSpec(config)
 
         # check the validity of the request
         invalid = spec.validate_delete_request(web)
@@ -792,8 +795,8 @@ class StatementHandler(SwordHttpHandler):
         auth = self.authenticate(web)
         if not auth.success():
             if auth.target_owner_unknown:
-                spec = SWORDSpec()
-                ss = SWORDServer(URIManager())
+                spec = SWORDSpec(config)
+                ss = SWORDServer(config, URIManager())
                 error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
                 web.header("Content-Type", "text/xml")
                 web.ctx.status = "403 Forbidden"
@@ -801,7 +804,7 @@ class StatementHandler(SwordHttpHandler):
             return
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(URIManager())
+        ss = SWORDServer(config, URIManager())
 
         # the get request will contain a suffix which is "rdf" or "atom" depending on
         # the desired return type
@@ -850,7 +853,7 @@ class WebUI(SwordHttpHandler):
                 cp = CollectionPage(URIManager())
                 return cp.get_collection_page(id)
         else:
-            hp = HomePage(URIManager())
+            hp = HomePage(config, URIManager())
             return hp.get_home_page()
 
 class Part(SwordHttpHandler):
@@ -858,7 +861,7 @@ class Part(SwordHttpHandler):
     Class to provide access to the component parts of the object on the server
     """
     def GET(self, path):
-        ss = SWORDServer(URIManager())
+        ss = SWORDServer(config, URIManager())
         
         # if we did, we can get hold of the media resource
         fh = ss.get_part(path)
@@ -884,7 +887,7 @@ class URIManager(object):
     Class for providing a single point of access to all identifiers used by SSS
     """
     def __init__(self):
-        self.configuration = global_configuration
+        self.configuration = config
 
     def html_url(self, collection, id=None):
         """ The url for the HTML splash page of an object in the store """
@@ -951,11 +954,6 @@ class URIManager(object):
 # WEB SERVER
 #######################################################################
 # This is the bit which actually invokes the web.py server when this module is run
-
-# FIXME: we need to sort out our approach to configuration first
-
-# create the global configuration
-global_configuration = CherryPyConfiguration()
 
 # if we run the file as a mod_wsgi module, do this
 application = web.application(urls, globals()).wsgifunc()
