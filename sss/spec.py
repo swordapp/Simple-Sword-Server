@@ -1,3 +1,6 @@
+# FIXME: this covers a lot of constants, so we should consider getting rid of
+# all these extraneous objects and just have dictionaries which can be imported
+
 class Namespaces(object):
     """
     This class encapsulates all the namespace declarations that we will need
@@ -30,3 +33,14 @@ class Namespaces(object):
         # ORE ATOM
         self.ORE_ATOM_NS = "http://www.openarchives.org/ore/atom/"
         self.ORE_ATOM = "{%s}" % self.ORE_ATOM_NS
+        
+class Errors(object):
+    content = "http://purl.org/net/sword/error/ErrorContent"
+    checksum_mismatch = "http://purl.org/net/sword/error/ErrorChecksumMismatch"
+    bad_request = "http://purl.org/net/sword/error/ErrorBadRequest"
+    target_owner = "http://purl.org/net/sword/error/TargetOwnerUnknown"
+    mediation_not = "http://purl.org/net/sword/error/MediationNotAllowed"
+    method_not_allowed = "http://purl.org/net/sword/error/MethodNotAllowed"
+    max_upload_size_exceeded = "http://purl.org/net/sword/error/MaxUploadSizeExceeded"
+
+

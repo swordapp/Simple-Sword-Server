@@ -1,9 +1,9 @@
 import web, re, base64, urllib, uuid
 from web.wsgiserver import CherryPyWSGIServer
-from core import Auth, SWORDSpec
-from repository import SWORDServer
+from core import Auth, SWORDSpec, SwordError, AuthException
 from negotiator import ContentNegotiator, AcceptParameters, ContentType
 from webui import HomePage, CollectionPage, ItemPage
+from spec import Errors
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
@@ -11,6 +11,9 @@ ssslog = logging.getLogger(__name__)
 # create the global configuration
 from config import Configuration
 config = Configuration()
+
+# FIXME: we need to separate this dependence, probably in configuration
+from repository import SWORDServer, SSSAuthenticator
 
 # Whether to run using SSL.  This uses a default self-signed certificate.  Change the paths to
 # use an alternative set of keys
@@ -50,47 +53,47 @@ urls = (
 # Define a set of handlers for the various URLs defined above to be used by web.py
 
 class SwordHttpHandler(object):
-    def authenticate(self, web):
-        auth = web.ctx.env.get('HTTP_AUTHORIZATION')
+    def http_basic_authenticate(self, web):
+        # extract the appropriate HTTP headers
+        auth_header = web.ctx.env.get('HTTP_AUTHORIZATION')
         obo = web.ctx.env.get("HTTP_ON_BEHALF_OF")
 
-        cfg = config
-
-        # we may have turned authentication off for development purposes
-        if not cfg.authenticate:
-            ssslog.info("Authentication is turned OFF")
-            return Auth(cfg.user)
-        else:
-            ssslog.info("Authentication required")
-
-        # if we want to authenticate, but there is no auth string then bounce with a 401 (realm SSS)
-        if auth is None:
-            ssslog.info("No authentication credentials supplied, requesting authentication")
+        # if we're not supplied with an auth header, bounce
+        if auth_header is None:
             web.header('WWW-Authenticate','Basic realm="SSS"')
             web.ctx.status = '401 Unauthorized'
-            return Auth()
-        else:
-            # assuming Basic authentication, get the username and password
-            auth = re.sub('^Basic ','',auth)
-            username, password = base64.decodestring(auth).split(':')
-            ssslog.info("Authentication details: " + str(username) + ":" + str(password) + "; On Behalf Of: " + str(obo))
+            raise SwordError()
+        
+        # deconstruct the BASIC auth header
+        try:
+            auth_header = re.sub('^Basic ', '', auth_header)
+            username, password = base64.decodestring(auth_header).split(':')
+        except Exception as e:
+            # could be exceptions in either decoding the header or in doing a split
+            ssslog.error("unable to interpret authentication header: " + auth_header)
+            ss = SWORDServer(config, URIManager())
+            error = ss.sword_error(Errors.bad_request)
+            web.ctx.status = "400 Bad Request"
+            web.header("Content-Type", "text/xml")
+            raise SwordError(error)
+        
+        ssslog.info("Authentication details: " + str(username) + ":" + str(password) + "; On Behalf Of: " + str(obo))
 
-            # if the username and password don't match, bounce the user with a 401
-            # meanwhile if the obo header has been passed but doesn't match the config value also bounce
-            # witha 401 (I know this is an odd looking if/else but it's for clarity of what's going on
-            if username != cfg.user or password != cfg.password:
-                ssslog.info("Authentication Failed; returning 401")
+        authenticator = SSSAuthenticator(config)
+        try:
+            auth = authenticator.basic_authenticate(username, password, obo)
+        except AuthException as e:
+            if e.authentication_failed:
                 web.ctx.status = '401 Unauthorized'
-                return Auth()
-            elif obo is not None and obo != cfg.obo:
-                ssslog.info("Authentication Failed with Target Owner Unknown")
-                # we throw a sword error for TargetOwnerUnknown
-                return Auth(cfg.user, obo, target_owner_unknown=True)
-
-        user = cfg.user
-        if obo is not None:
-            return Auth(user, obo)
-        return Auth(user)
+                raise SwordError()
+            elif e.target_owner_unknown:
+                web.ctx.status = "403 Forbidden"
+                web.header("Content-Type", "text/xml")
+                ss = SWORDServer(config, URIManager())
+                error = ss.sword_error(Errors.target_owner_unknown, obo)
+                raise SwordError(error)
+        
+        return auth
 
 class ServiceDocument(SwordHttpHandler):
     """
@@ -101,16 +104,10 @@ class ServiceDocument(SwordHttpHandler):
         ssslog.debug("GET on Service Document; Incoming HTTP headers: " + str(web.ctx.environ))
         
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SWORDServer(config, URIManager())
@@ -132,16 +129,10 @@ class Collection(SwordHttpHandler):
         ssslog.debug("GET on Collection (list collection contents); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SWORDServer(config, URIManager())
@@ -158,16 +149,10 @@ class Collection(SwordHttpHandler):
         ssslog.debug("POST to Collection (create new item); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, URIManager())
@@ -334,16 +319,10 @@ class MediaResource(MediaResourceContent):
             return error
 
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, URIManager())
@@ -405,16 +384,10 @@ class MediaResource(MediaResourceContent):
             return error
 
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, URIManager())
@@ -467,16 +440,10 @@ class MediaResource(MediaResourceContent):
             return error
             
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, URIManager())
@@ -540,16 +507,10 @@ class Container(SwordHttpHandler):
         ssslog.debug("GET on Container (retrieve deposit receipt or statement); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SWORDServer(config, URIManager())
@@ -620,16 +581,10 @@ class Container(SwordHttpHandler):
             return error
         
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, URIManager())
@@ -699,16 +654,10 @@ class Container(SwordHttpHandler):
             return error
 
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, URIManager())
@@ -774,16 +723,10 @@ class Container(SwordHttpHandler):
             return error
 
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, URIManager())
@@ -820,16 +763,10 @@ class StatementHandler(SwordHttpHandler):
         ssslog.debug("GET on Statement (retrieve); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # authenticate
-        auth = self.authenticate(web)
-        if not auth.success():
-            if auth.target_owner_unknown:
-                spec = SWORDSpec(config)
-                ss = SWORDServer(config, URIManager())
-                error = ss.sword_error(spec.error_target_owner_unknown_uri, auth.obo)
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = "403 Forbidden"
-                return error
-            return
+        try:
+            auth = self.http_basic_authenticate(web)
+        except SwordError as e:
+            return e.error_document
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SWORDServer(config, URIManager())

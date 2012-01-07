@@ -15,11 +15,19 @@ ssslog = logging.getLogger(__name__)
 # These classes are used as the glue between the web.py web interface layer and the underlying sword server, allowing
 # them to exchange messages agnostically to the interface
 
+class SwordError(Exception):
+    def __init__(self, error_document=""):
+        self.error_document = error_document
+
+class AuthException(Exception):
+    def __init__(self, authentication_failed=False, target_owner_unknown=False):
+        self.authentication_failed = authentication_failed
+        self.target_owner_unknown = target_owner_unknown
+
 class Auth(object):
-    def __init__(self, by=None, obo=None, target_owner_unknown=False):
+    def __init__(self, by=None, obo=None):
         self.by = by
         self.obo = obo
-        self.target_owner_unknown = target_owner_unknown
 
     def success(self):
         return self.by is not None and not self.target_owner_unknown

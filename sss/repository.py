@@ -1,11 +1,39 @@
 import os, hashlib, uuid
-from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Namespaces
+from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException
+from spec import Namespaces
 from lxml import etree
 from datetime import datetime
 from zipfile import ZipFile
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
+
+class SSSAuthenticator(object):
+    def __init__(self, config):
+        self.config = config
+    
+    def basic_authenticate(self, username, password, obo):
+        # we may have turned authentication off for development purposes
+        if not self.config.authenticate:
+            ssslog.info("Authentication is turned OFF")
+            return Auth(self.config.user)
+        else:
+            ssslog.info("Authentication required")
+        
+        # if the username and password don't match, bounce the user with a 401
+        # meanwhile if the obo header has been passed but doesn't match the config value also bounce
+        # with a 401 (I know this is an odd looking if/else but it's for clarity of what's going on
+        if username != self.config.user or password != self.config.password:
+            ssslog.info("Authentication Failed; returning 401")
+            raise AuthException(authentication_failed=True)
+        elif obo is not None and obo != self.config.obo:
+            ssslog.info("Authentication Failed with Target Owner Unknown")
+            # we throw a sword error for TargetOwnerUnknown
+            raise AuthException(target_owner_unknown=True)
+            
+        if obo is not None:
+            return Auth(self.config.user, obo)
+        return Auth(self.config.user)
 
 class SWORDServer(object):
     """
