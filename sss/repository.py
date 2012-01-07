@@ -237,7 +237,7 @@ class SWORDServer(object):
         else:
             return None
 
-    def get_media_resource(self, oid, content_type):
+    def get_media_resource(self, oid, accept_parameters):
         """
         Get a representation of the media resource for the given id as represented by the specified content type
         -id:    The ID of the object in the store
@@ -246,7 +246,7 @@ class SWORDServer(object):
         # by the time this is called, we should already know that we can return this type, so there is no need for
         # any checking, we just get on with it
 
-        ssslog.info("Request media type with media format: " + content_type.media_format())
+        ssslog.info("Request media type with media format: " + accept_parameters.media_format())
 
         # ok, so break the id down into collection and object
         collection, id = self.um.interpret_oid(oid)
@@ -256,14 +256,14 @@ class SWORDServer(object):
 
         # if the type/subtype is text/html, then we need to do a redirect.  This is equivalent to redirecting the
         # client to the splash page of the item on the server
-        if content_type.mimetype() == "text/html":
+        if accept_parameters.content_type.mimetype() == "text/html":
             ssslog.info("Requested format is text/html ... redirecting client to web ui")
             mr.redirect = True
             mr.url = self.um.html_url(collection, id)
             return mr
         
         # call the appropriate packager, and get back the filepath for the response
-        packager = self.configuration.get_package_disseminator(content_type.media_format())(self.dao, self.um)
+        packager = self.configuration.get_package_disseminator(accept_parameters.media_format())(self.dao, self.um)
         mr.filepath = packager.package(collection, id)
         mr.packaging = packager.get_uri()
 
@@ -490,7 +490,7 @@ class SWORDServer(object):
         dr.created = True
         return dr
 
-    def get_container(self, oid, content_type):
+    def get_container(self, oid, accept_parameters):
         """
         Get a representation of the container in the requested content type
         Args:
@@ -501,20 +501,20 @@ class SWORDServer(object):
         # by the time this is called, we should already know that we can return this type, so there is no need for
         # any checking, we just get on with it
 
-        ssslog.info("Container requested in mime format: " + content_type.mimetype())
+        ssslog.info("Container requested in mime format: " + accept_parameters.content_type.mimetype())
 
         # ok, so break the id down into collection and object
         collection, id = self.um.interpret_oid(oid)
 
         # pick either the deposit receipt or the pure statement to return to the client
-        if content_type.mimetype() == "application/atom+xml;type=entry":
+        if accept_parameters.content_type.mimetype() == "application/atom+xml;type=entry":
             return self.dao.get_deposit_receipt_content(collection, id)
-        elif content_type.mimetype() == "application/rdf+xml":
+        elif accept_parameters.content_type.mimetype() == "application/rdf+xml":
             return self.dao.get_statement_content(collection, id)
-        elif content_type.mimetype() == "application/atom+xml;type=feed":
+        elif accept_parameters.content_type.mimetype() == "application/atom+xml;type=feed":
             return self.dao.get_statement_feed(collection, id)
         else:
-            ssslog.info("Requested mimetype not recognised/supported: " + content_type.mimetype())
+            ssslog.info("Requested mimetype not recognised/supported: " + accept_parameters.content_type.mimetype())
             return None
 
     def deposit_existing(self, oid, deposit):
@@ -804,11 +804,11 @@ class SWORDServer(object):
 
         return entry
 
-    def get_statement(self, oid, content_type):
+    def get_statement(self, oid, accept_parameters):
         collection, id = self.um.interpret_oid(oid)
-        if content_type == "application/rdf+xml":
+        if accept_parameters.content_type.mimetype() == "application/rdf+xml":
             return self.dao.get_statement_content(collection, id)
-        elif content_type == "application/atom+xml;type=feed":
+        elif accept_parameters.content_type.mimetype() == "application/atom+xml;type=feed":
             return self.dao.get_statement_feed(collection, id)
         else:
             return None

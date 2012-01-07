@@ -2,7 +2,7 @@ import web, re, base64, urllib, uuid
 from web.wsgiserver import CherryPyWSGIServer
 from core import Auth, SWORDSpec
 from repository import SWORDServer
-from negotiator import ContentNegotiator, ContentType
+from negotiator import ContentNegotiator, AcceptParameters, ContentType
 from webui import HomePage, CollectionPage, ItemPage
 
 from sss_logging import logging
@@ -247,45 +247,60 @@ class MediaResourceContent(SwordHttpHandler):
         if not ss.exists(id):
             return web.notfound()
         
-        content_type = None
+        accept_parameters = None
         if not atom:
             # do some content negotiation
-            cn = ContentNegotiator()
+            default_accept_parameters = AcceptParameters(ContentType("application/zip"))
+            acceptable = [
+                AcceptParameters(ContentType("application/zip"), packaging="http://purl.org/net/sword/package/SimpleZip"),
+                AcceptParameters(ContentType("application/zip")),
+                AcceptParameters(ContentType("application/atom+xml;type=feed")),
+                AcceptParameters(ContentType("text/html"))
+            ]
+            accept_header = web.ctx.environ.get("HTTP_ACCEPT")
+            accept_packaging_header = web.ctx.environ.get("HTTP_ACCEPT_PACKAGING")
+            
+            cn = ContentNegotiator(default_accept_parameters, acceptable)
+            accept_parameters = cn.negotiate(accept=accept_header, accept_packaging=accept_packaging_header)
+            
+            # do some content negotiation
+            #cn = ContentNegotiator()
 
             # if no Accept header, then we will get this back
-            cn.default_type = "application"
-            cn.default_subtype = "zip"
-            cn.default_packaging = None
+            #cn.default_type = "application"
+            #cn.default_subtype = "zip"
+            #cn.default_packaging = None
 
             # The list of acceptable formats (in order of preference).
             # FIXME: ultimately to replace this with the negotiator
-            cn.acceptable = [
-                    ContentType("application", "zip", None, "http://purl.org/net/sword/package/SimpleZip"),
-                    ContentType("application", "zip"),
-                    ContentType("application", "atom+xml", "type=feed"),
-                    ContentType("text", "html")
-                ]
+            #cn.acceptable = [
+            #        ContentType("application", "zip", None, "http://purl.org/net/sword/package/SimpleZip"),
+            #        ContentType("application", "zip"),
+            #        ContentType("application", "atom+xml", "type=feed"),
+            #        ContentType("text", "html")
+            #    ]
 
             # do the negotiation
-            content_type = cn.negotiate(web.ctx.environ)
+            #content_type = cn.negotiate(web.ctx.environ)
         else:
-            content_type = ContentType("application", "atom+xml", "type=feed")
+            accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=feed"))
+            # content_type = ContentType("application", "atom+xml", "type=feed")
 
         # did we successfully negotiate a content type?
-        if content_type is None:
-            error = ss.sword_error(spec.error_content_uri, "Requsted Accept-Packaging is not supported by this server")
+        if accept_parameters is None:
+            error = ss.sword_error(spec.error_content_uri, "Requsted Accept/Accept-Packaging is not supported by this server")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "406 Not Acceptable"
             return error
         
         # if we did, we can get hold of the media resource
-        media_resource = ss.get_media_resource(id, content_type)
+        media_resource = ss.get_media_resource(id, accept_parameters)
 
         # either send the client a redirect, or stream the content out
         if media_resource.redirect:
             return web.found(media_resource.url)
         else:
-            web.header("Content-Type", content_type.mimetype())
+            web.header("Content-Type", accept_parameters.content_type.mimetype())
             if media_resource.packaging is not None:
                 web.header("Packaging", media_resource.packaging)
             f = open(media_resource.filepath, "r")
@@ -546,32 +561,45 @@ class Container(SwordHttpHandler):
             return web.notfound()
 
         # do some content negotiation
-        cn = ContentNegotiator()
+        default_accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=entry"))
+        acceptable = [
+            AcceptParameters(ContentType("application/atom+xml;type=entry")),
+            AcceptParameters(ContentType("application/atom+xml;type=feed")),
+            AcceptParameters(ContentType("application/rdf+xml"))
+        ]
+        accept_header = web.ctx.environ.get("HTTP_ACCEPT")
+        accept_packaging_header = web.ctx.environ.get("HTTP_ACCEPT_PACKAGING")
+        
+        cn = ContentNegotiator(default_accept_parameters, acceptable)
+        accept_parameters = cn.negotiate(accept=accept_header)
+
+        # do some content negotiation
+        #cn = ContentNegotiator()
 
         # if no Accept header, then we will get this back
-        cn.default_type = "application"
-        cn.default_subtype = "atom+xml"
-        cn.default_params = "type=entry"
-        cn.default_packaging = None
+        #cn.default_type = "application"
+        #cn.default_subtype = "atom+xml"
+        #cn.default_params = "type=entry"
+        #cn.default_packaging = None
 
         # The list of acceptable formats (in order of preference).  The tuples list the type and
         # the parameters section respectively
-        cn.acceptable = [
-                ContentType("application", "atom+xml", "type=entry"),
-                ContentType("application", "atom+xml", "type=feed"),
-                ContentType("application", "rdf+xml")
-            ]
+        #cn.acceptable = [
+        #        ContentType("application", "atom+xml", "type=entry"),
+        #        ContentType("application", "atom+xml", "type=feed"),
+        #        ContentType("application", "rdf+xml")
+        #    ]
 
         # do the negotiation
-        content_type = cn.negotiate(web.ctx.environ)
+        #content_type = cn.negotiate(web.ctx.environ)
 
         # did we successfully negotiate a content type?
-        if content_type is None:
+        if accept_parameters is None:
             web.ctx.status = "415 Unsupported Media Type"
             return
 
         # now actually get hold of the representation of the container and send it to the client
-        cont = ss.get_container(id, content_type)
+        cont = ss.get_container(id, accept_parameters)
         return cont
 
     def PUT(self, id):
@@ -808,12 +836,12 @@ class StatementHandler(SwordHttpHandler):
 
         # the get request will contain a suffix which is "rdf" or "atom" depending on
         # the desired return type
-        content_type = None
+        accept_parameters = None
         if id.endswith("rdf"):
-            content_type = "application/rdf+xml"
+            accept_parameters = AcceptParameters(ContentType("application/rdf+xml"))
             id = id[:-4]
         elif id.endswith("atom"):
-            content_type = "application/atom+xml;type=feed"
+            accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=feed"))
             id = id[:-5]
 
         # first thing we need to do is check that there is an object to return, because otherwise we may throw a
@@ -823,11 +851,11 @@ class StatementHandler(SwordHttpHandler):
             return web.notfound()
 
         # did we successfully negotiate a content type?
-        if content_type is None:
+        if accept_parameters is None:
             return web.notfound()
 
         # now actually get hold of the representation of the statement and send it to the client
-        cont = ss.get_statement(id, content_type)
+        cont = ss.get_statement(id, accept_parameters)
         return cont
 
 class Aggregation(SwordHttpHandler):

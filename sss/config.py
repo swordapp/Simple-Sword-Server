@@ -137,10 +137,26 @@ class Configuration(object):
         classname = components[-1:][0]
         modpath = ".".join(components[:-1])
         
+        return self._load_class(modpath, classname)
+    
+    def _load_class(self, modpath, classname):
         # now, do some introspection to get a handle on the class
-        mod = __import__(modpath, fromlist=[classname])
-        klazz = getattr(mod, classname)
-        return klazz
+        try:
+            mod = __import__(modpath, fromlist=[classname])
+            klazz = getattr(mod, classname)
+            return klazz
+        except ImportError as e:
+            # in this case it's possible that it's just a context thing, and
+            # the class we're trying to load is in /this/ package, and therefore
+            # can't be reference with sss as the top level module.  If that's
+            # the case then we can try again
+            ssslog.debug("ImportError thrown loading class: " + classname + " from module " + modpath)
+            if modpath.startswith("sss."):
+                ssslog.debug("Module path " + modpath + " starts with 'sss' so ImportError may be due to module path context; trying without 'sss'")
+                modpath = modpath[4:]
+                return self._load_class(modpath, classname)
+            else:
+                raise e
     
     def _load_json(self):
         if not os.path.isfile(self.SSS_CONFIG_FILE):
