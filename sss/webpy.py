@@ -3,7 +3,7 @@ from web.wsgiserver import CherryPyWSGIServer
 from core import Auth, SWORDSpec, SwordError, AuthException
 from negotiator import ContentNegotiator, AcceptParameters, ContentType
 from webui import HomePage, CollectionPage, ItemPage
-from spec import Errors
+from spec import Errors, HttpHeaders, ValidationException
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
@@ -47,6 +47,11 @@ urls = (
     '/html/(.+)', 'WebUI'
 )
 
+HEADER_MAP = {
+    HttpHeaders.in_progress : "HTTP_IN_PROGRESS",
+    HttpHeaders.metadata_relevant : "HTTP_METADATA_RELEVANT",
+    HttpHeaders.on_behalf_of : "HTTP_ON_BEHALF_OF"
+}
 
 # HTTP HANDLERS
 #############################################################################
@@ -56,7 +61,7 @@ class SwordHttpHandler(object):
     def http_basic_authenticate(self, web):
         # extract the appropriate HTTP headers
         auth_header = web.ctx.env.get('HTTP_AUTHORIZATION')
-        obo = web.ctx.env.get("HTTP_ON_BEHALF_OF")
+        obo = web.ctx.env.get(HEADER_MAP[HttpHeaders.on_behalf_of])
 
         # if we're not supplied with an auth header, bounce
         if auth_header is None:
@@ -71,7 +76,7 @@ class SwordHttpHandler(object):
         except Exception as e:
             # could be exceptions in either decoding the header or in doing a split
             ssslog.error("unable to interpret authentication header: " + auth_header)
-            ss = SWORDServer(config, URIManager())
+            ss = SWORDServer(config, None, URIManager())
             error = ss.sword_error(Errors.bad_request)
             web.ctx.status = "400 Bad Request"
             web.header("Content-Type", "text/xml")
@@ -89,19 +94,65 @@ class SwordHttpHandler(object):
             elif e.target_owner_unknown:
                 web.ctx.status = "403 Forbidden"
                 web.header("Content-Type", "text/xml")
-                ss = SWORDServer(config, URIManager())
+                ss = SWORDServer(config, None, URIManager())
                 error = ss.sword_error(Errors.target_owner_unknown, obo)
                 raise SwordError(error)
         
         return auth
+        
+    def validate_deposit_request(self, web, entry_section=None, binary_section=None, multipart_section=None, allow_multipart=True):
+        h = HttpHeaders()
+
+        # map the headers to standard http
+        mapped_headers = dict([(c[0][5:].replace("_", "-") if c[0].startswith("HTTP_") else c[0].replace("_", "-"), c[1]) for c in web.ctx.environ.items()])
+        ssslog.debug("Validating on header dictionary: " + str(mapped_headers))
+  
+        # run the validation
+        try:
+            # there must be both an "atom" and "payload" input or data in web.data()
+            webin = web.input()
+            if len(webin) != 2 and len(webin) > 0:
+                raise ValidationException("Multipart request does not contain exactly 2 parts")
+            if len(webin) >= 2 and not webin.has_key("atom") and not webin.has_key("payload"):
+                raise ValidationException("Multipart request must contain Content-Dispositions with names 'atom' and 'payload'")
+            if len(webin) > 0 and not allow_multipart:
+                raise ValidationException("Multipart request not permitted in this context")
+
+            # if we get to here then we have a valid multipart or no multipart
+            is_multipart = False
+            if len(webin) != 2: # if it is not multipart
+                if web.data() is None: # and there is no content
+                    raise ValidationException("No content sent to the server")
+            else:
+                is_multipart = True
+            
+            is_entry = False
+            content_type = mapped_headers.get("CONTENT-TYPE")
+            if content_type is not None and content_type.startswith("application/atom+xml"):
+                is_entry = True
+            
+            section = entry_section if is_entry else multipart_section if is_multipart else binary_section
+            
+            # now validate the http headers
+            h.validate(mapped_headers, section)
+            
+        except ValidationException as e:
+            ss = SWORDServer(config, None, URIManager())
+            error = ss.sword_error(Errors.bad_request, e.message)
+            web.header("Content-Type", "text/xml")
+            web.ctx.status = "400 Bad Request"
+            raise SwordError(error)
 
 class ServiceDocument(SwordHttpHandler):
     """
     Handle all requests for Service documents (requests to SD-URI)
     """
-    def GET(self, sub=None):
-        """ GET the service document - returns an XML document """
-        ssslog.debug("GET on Service Document; Incoming HTTP headers: " + str(web.ctx.environ))
+    def GET(self, sub_path=None):
+        """ 
+        GET the service document - returns an XML document 
+        - sub_path - the path provided for the sub-service document
+        """
+        ssslog.debug("GET on Service Document (retrieve service document); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # authenticate
         try:
@@ -110,10 +161,10 @@ class ServiceDocument(SwordHttpHandler):
             return e.error_document
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, auth, URIManager())
+        sd = ss.service_document(sub_path)
         web.header("Content-Type", "text/xml")
-        use_sub = config.use_sub if sub is None else False
-        return ss.service_document(use_sub)
+        return sd
 
 class Collection(SwordHttpHandler):
     """
@@ -135,9 +186,10 @@ class Collection(SwordHttpHandler):
             return e.error_document
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, auth, URIManager())
+        cl = sss.list_collection(collection)
         web.header("Content-Type", "text/xml")
-        return ss.list_collection(collection)
+        return cl
         
     def POST(self, collection):
         """
@@ -155,17 +207,15 @@ class Collection(SwordHttpHandler):
             return e.error_document
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, URIManager())
-        spec = SWORDSpec(config)
+        ss = SWORDServer(config, auth, URIManager())
+        spec = SWORDSpec(config) # FIXME: this may not be required
 
         # check the validity of the request
-        invalid = spec.validate_deposit_request(web)
-        if invalid is not None:
-            error = ss.sword_error(spec.error_bad_request_uri, invalid)
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "400 Bad Request"
-            return error
-
+        try:
+            self.validate_deposit_request(web, "6.3.3", "6.3.1", "6.3.2")
+        except SwordError as e:
+            return e.error_document
+        
         # take the HTTP request and extract a Deposit object from it
         deposit = spec.get_deposit(web, auth)
         if deposit.too_large:
@@ -223,7 +273,7 @@ class MediaResourceContent(SwordHttpHandler):
         
         # NOTE: this method is not authenticated - we imagine sharing this URL with end-users who will just want
         # to retrieve the content.  It's only for the purposes of example, anyway
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, None, URIManager())
         spec = SWORDSpec(config)
 
         # first thing we need to do is check that there is an object to return, because otherwise we may throw a
@@ -312,7 +362,7 @@ class MediaResource(MediaResourceContent):
         cfg = config
         if not cfg.allow_update:
             spec = SWORDSpec(config)
-            ss = SWORDServer(config, URIManager())
+            ss = SWORDServer(config, None, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -325,16 +375,15 @@ class MediaResource(MediaResourceContent):
             return e.error_document
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, auth, URIManager())
         spec = SWORDSpec(config)
 
         # check the validity of the request (note that multipart requests are not permitted in this method)
-        invalid = spec.validate_deposit_request(web, allow_multipart=False)
-        if invalid is not None:
-            error = ss.sword_error(spec.error_bad_request_uri, invalid)
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "400 Bad Request"
-            return error
+        # check the validity of the request
+        try:
+            self.validate_deposit_request(web, "6.x", "6.x", "6.x", allow_multipart=False)
+        except SwordError as e:
+            return e.error_document
 
         # next, before processing the request, let's check that the id is valid, and if not 404 the client
         if not ss.exists(id):
@@ -377,7 +426,7 @@ class MediaResource(MediaResourceContent):
         cfg = config
         if not cfg.allow_delete:
             spec = SWORDSpec(config)
-            ss = SWORDServer(config, URIManager())
+            ss = SWORDServer(config, None, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Delete operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -390,7 +439,7 @@ class MediaResource(MediaResourceContent):
             return e.error_document
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, auth, URIManager())
         spec = SWORDSpec(config)
 
         # check the validity of the request
@@ -433,7 +482,7 @@ class MediaResource(MediaResourceContent):
         cfg = config
         if not cfg.allow_update:
             spec = SWORDSpec(config)
-            ss = SWORDServer(config, URIManager())
+            ss = SWORDServer(config, None, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -446,16 +495,14 @@ class MediaResource(MediaResourceContent):
             return e.error_document
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, auth, URIManager())
         spec = SWORDSpec(config)
 
         # check the validity of the request
-        invalid = spec.validate_deposit_request(web)
-        if invalid is not None:
-            error = ss.sword_error(spec.error_bad_request_uri, invalid)
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "400 Bad Request"
-            return error
+        try:
+            self.validate_deposit_request(web, "6.x", "6.x", "6.x")
+        except SwordError as e:
+            return e.error_document
 
         # next, before processing the request, let's check that the id is valid, and if not 404 the client
         if not ss.exists(id):
@@ -513,7 +560,7 @@ class Container(SwordHttpHandler):
             return e.error_document
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, auth, URIManager())
 
         # first thing we need to do is check that there is an object to return, because otherwise we may throw a
         # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
@@ -533,26 +580,6 @@ class Container(SwordHttpHandler):
         
         cn = ContentNegotiator(default_accept_parameters, acceptable)
         accept_parameters = cn.negotiate(accept=accept_header)
-
-        # do some content negotiation
-        #cn = ContentNegotiator()
-
-        # if no Accept header, then we will get this back
-        #cn.default_type = "application"
-        #cn.default_subtype = "atom+xml"
-        #cn.default_params = "type=entry"
-        #cn.default_packaging = None
-
-        # The list of acceptable formats (in order of preference).  The tuples list the type and
-        # the parameters section respectively
-        #cn.acceptable = [
-        #        ContentType("application", "atom+xml", "type=entry"),
-        #        ContentType("application", "atom+xml", "type=feed"),
-        #        ContentType("application", "rdf+xml")
-        #    ]
-
-        # do the negotiation
-        #content_type = cn.negotiate(web.ctx.environ)
 
         # did we successfully negotiate a content type?
         if accept_parameters is None:
@@ -574,7 +601,7 @@ class Container(SwordHttpHandler):
         cfg = config
         if not cfg.allow_update:
             spec = SWORDSpec(config)
-            ss = SWORDServer(config, URIManager())
+            ss = SWORDServer(config, None, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -587,16 +614,14 @@ class Container(SwordHttpHandler):
             return e.error_document
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, auth, URIManager())
         spec = SWORDSpec(config)
 
         # check the validity of the request
-        invalid = spec.validate_deposit_request(web)
-        if invalid is not None:
-            error = ss.sword_error(spec.error_bad_request_uri, invalid)
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "400 Bad Request"
-            return error
+        try:
+            self.validate_deposit_request(web, "6.x", "6.x", "6.x")
+        except SwordError as e:
+            return e.error_document
 
         # take the HTTP request and extract a Deposit object from it
         deposit = spec.get_deposit(web, auth)
@@ -647,7 +672,7 @@ class Container(SwordHttpHandler):
         cfg = config
         if not cfg.allow_update:
             spec = SWORDSpec(config)
-            ss = SWORDServer(config, URIManager())
+            ss = SWORDServer(config, None, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -660,16 +685,14 @@ class Container(SwordHttpHandler):
             return e.error_document
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, auth, URIManager())
         spec = SWORDSpec(config)
 
         # check the validity of the request
-        invalid = spec.validate_deposit_request(web)
-        if invalid is not None:
-            error = ss.sword_error(spec.error_bad_request_uri, invalid)
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "400 Bad Request"
-            return error
+        try:
+            self.validate_deposit_request(web, "6.x", "6.x", "6.x")
+        except SwordError as e:
+            return e.error_document
 
         # take the HTTP request and extract a Deposit object from it
         deposit = spec.get_deposit(web, auth)
@@ -716,7 +739,7 @@ class Container(SwordHttpHandler):
         cfg = config
         if not cfg.allow_delete:
             spec = SWORDSpec(config)
-            ss = SWORDServer(config, URIManager())
+            ss = SWORDServer(config, None, URIManager())
             error = ss.sword_error(spec.error_method_not_allowed_uri, "Delete operations not currently permitted")
             web.header("Content-Type", "text/xml")
             web.ctx.status = "405 Method Not Allowed"
@@ -729,7 +752,7 @@ class Container(SwordHttpHandler):
             return e.error_document
 
         # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, auth, URIManager())
         spec = SWORDSpec(config)
 
         # check the validity of the request
@@ -769,7 +792,7 @@ class StatementHandler(SwordHttpHandler):
             return e.error_document
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, auth, URIManager())
 
         # the get request will contain a suffix which is "rdf" or "atom" depending on
         # the desired return type
@@ -826,7 +849,7 @@ class Part(SwordHttpHandler):
     Class to provide access to the component parts of the object on the server
     """
     def GET(self, path):
-        ss = SWORDServer(config, URIManager())
+        ss = SWORDServer(config, None, URIManager())
         
         # if we did, we can get hold of the media resource
         fh = ss.get_part(path)

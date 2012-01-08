@@ -188,35 +188,6 @@ class SWORDSpec(object):
         self.error_method_not_allowed_uri = "http://purl.org/net/sword/error/MethodNotAllowed"
         self.error_max_upload_size_exceeded = "http://purl.org/net/sword/error/MaxUploadSizeExceeded"
 
-    def validate_deposit_request(self, web, allow_multipart=True):
-        dict = web.ctx.environ
-
-        # get each of the allowed SWORD headers that can be validated and see if they do
-        ip = dict.get("HTTP_IN_PROGRESS")
-        if ip is not None and ip != "true" and ip != "false":
-            return "In-Progress must be 'true' or 'false'"
-
-        sm = dict.get("HTTP_METADATA_RELEVANT")
-        if sm is not None and sm != "true" and sm != "false":
-            return "Metadata-Relevant must be 'true' or 'false'"
-
-        # there must be both an "atom" and "payload" input or data in web.data()
-        webin = web.input()
-        if len(webin) != 2 and len(webin) > 0:
-            return "Multipart request does not contain exactly 2 parts"
-        if len(webin) >= 2 and not webin.has_key("atom") and not webin.has_key("payload"):
-            return "Multipart request must contain Content-Dispositions with names 'atom' and 'payload'"
-        if len(webin) > 0 and not allow_multipart:
-            return "Multipart request not permitted in this context"
-
-        # if we get to here then we have a valid multipart or no multipart
-        if len(webin) != 2: # if it is not multipart
-            if web.data() is None: # and there is no content
-                return "No content sent to the server"
-
-        # validates
-        return None
-
     def validate_delete_request(self, web):
         dict = web.ctx.environ
 

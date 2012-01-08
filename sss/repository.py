@@ -40,10 +40,12 @@ class SWORDServer(object):
     The main SWORD Server class.  This class deals with all the CRUD requests as provided by the web.py HTTP
     handlers
     """
-    def __init__(self, config, uri_manager):
+    def __init__(self, config, auth, uri_manager):
 
         # get the configuration
         self.configuration = config
+
+        self.auth_credentials = auth
 
         # create a DAO for us to use
         self.dao = DAO(self.configuration)
@@ -68,11 +70,13 @@ class SWORDServer(object):
         collection, id = oid.split("/", 1)
         return self.dao.collection_exists(collection) and self.dao.container_exists(collection, id)
 
-    def service_document(self, use_sub=False):
+    def service_document(self, path=None):
         """
         Construct the Service Document.  This takes the set of collections that are in the store, and places them in
         an Atom Service document as the individual entries
         """
+        use_sub = self.configuration.use_sub if path is None else False
+        
         # Start by creating the root of the service document, supplying to it the namespace map in this first instance
         service = etree.Element(self.ns.APP + "service", nsmap=self.sdmap)
 
