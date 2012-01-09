@@ -1,6 +1,6 @@
 import web, re, base64, urllib, uuid
 from web.wsgiserver import CherryPyWSGIServer
-from core import Auth, SWORDSpec, SwordError, AuthException
+from core import Auth, SWORDSpec, SwordError, AuthException, DepositRequest
 from negotiator import ContentNegotiator, AcceptParameters, ContentType
 from webui import HomePage, CollectionPage, ItemPage
 from spec import Errors, HttpHeaders, ValidationException
@@ -99,7 +99,10 @@ class SwordHttpHandler(object):
                 raise SwordError(error)
         
         return auth
-        
+    
+    def manage_error(self, sword_error):
+        return sword_error.error_document
+    
     def validate_deposit_request(self, web, entry_section=None, binary_section=None, multipart_section=None, allow_multipart=True):
         h = HttpHeaders()
 
@@ -142,6 +145,72 @@ class SwordHttpHandler(object):
             web.header("Content-Type", "text/xml")
             web.ctx.status = "400 Bad Request"
             raise SwordError(error)
+            
+    def get_deposit(self, web, auth=None, atom_only=False):
+        # FIXME: this reads files into memory, and therefore does not scale
+        # FIXME: this does not deal with the Media Part headers on a multipart deposit
+        """
+        Take a web.py web object and extract from it the parameters and content required for a SWORD deposit.  This
+        includes determining whether this is an Atom Multipart request or not, and extracting the atom/payload where
+        appropriate.  It also includes extracting the HTTP headers which are relevant to deposit, and for those not
+        supplied providing their defaults in the returned DepositRequest object
+        """
+        d = DepositRequest()
+        
+        # map the webpy headers to something more standard
+        mapped_headers = dict([(c[0][5:].replace("_", "-") if c[0].startswith("HTTP_") else c[0].replace("_", "-"), c[1]) for c in web.ctx.environ.items()])
+
+        # get the headers that have been provided.  Any headers which have not been provided will
+        # will have default values applied
+        h = HttpHeaders()
+        d.set_from_headers(h.get_sword_headers(mapped_headers))
+        
+        if d.content_type.startswith("application/atom+xml"):
+            atom_only=True
+        
+        empty_request = False
+        if d.content_length == 0:
+            empty_request = True
+        if d.content_length > config.max_upload_size:
+            ss = SWORDServer(config, auth, None)
+            error = ss.sword_error(Errors.max_upload_size_exceeded, 
+                            "Max upload size is " + config.max_upload_size + 
+                            "; incoming content length was " + str(cl))
+            raise SwordError(error)
+        
+        # find out if this is a multipart or not
+        is_multipart = False
+        
+        # FIXME: these headers aren't populated yet, because the webpy api doesn't
+        # appear to have a mechanism to retrieve them.  urgh.
+        entry_part_headers = {}
+        media_part_headers = {}
+        webin = web.input()
+        if len(webin) == 2:
+            ssslog.info("Received multipart deposit request")
+            d.atom = webin['atom']
+            # FIXME: this reads the payload into memory, we need to sort that out
+            # read the zip file from the base64 encoded string
+            d.content = base64.decodestring(webin['payload'])
+            is_multipart = True
+        elif not empty_request:
+            # if this wasn't a multipart, and isn't an empty request, then the data is in web.data().  This could be a binary deposit or
+            # an atom entry deposit - reply on the passed/determined argument to determine which
+            if atom_only:
+                ssslog.info("Received Entry deposit request")
+                d.atom = web.data()
+            else:
+                ssslog.info("Received Binary deposit request")
+                d.content = web.data()
+        
+        if is_multipart:
+            d.filename = h.extract_filename(media_part_headers)
+        else:
+            d.filename = h.extract_filename(mapped_headers)
+        
+        # now just attach the authentication data and return
+        d.auth = auth
+        return d
 
 class ServiceDocument(SwordHttpHandler):
     """
@@ -158,7 +227,7 @@ class ServiceDocument(SwordHttpHandler):
         try:
             auth = self.http_basic_authenticate(web)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SWORDServer(config, auth, URIManager())
@@ -183,7 +252,7 @@ class Collection(SwordHttpHandler):
         try:
             auth = self.http_basic_authenticate(web)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SWORDServer(config, auth, URIManager())
@@ -203,50 +272,43 @@ class Collection(SwordHttpHandler):
         # authenticate
         try:
             auth = self.http_basic_authenticate(web)
-        except SwordError as e:
-            return e.error_document
-
-        # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, auth, URIManager())
-        spec = SWORDSpec(config) # FIXME: this may not be required
-
-        # check the validity of the request
-        try:
+                    
+            # if we get here authentication was successful and we carry on
+            ss = SWORDServer(config, auth, URIManager())
+            
+            # check the validity of the request
             self.validate_deposit_request(web, "6.3.3", "6.3.1", "6.3.2")
-        except SwordError as e:
-            return e.error_document
         
-        # take the HTTP request and extract a Deposit object from it
-        deposit = spec.get_deposit(web, auth)
-        if deposit.too_large:
-            error = ss.sword_error(spec.error_max_upload_size_exceeded, "Your deposit exceeds the maximum upload size limit")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "413 Request Entity Too Large"
-            return error
-        result = ss.deposit_new(collection, deposit)
+            # take the HTTP request and extract a Deposit object from it    
+            deposit = self.get_deposit(web, auth)
+            
+            result = ss.deposit_new(collection, deposit)
 
-        if result is None:
-            return web.notfound()
-
-        cfg = config
-
-        # created, accepted, or error
-        if result.created:
-            ssslog.info("Item created")
-            web.header("Content-Type", "application/atom+xml;type=entry")
-            web.header("Location", result.location)
-            web.ctx.status = "201 Created"
-            if cfg.return_deposit_receipt:
-                ssslog.info("Returning deposit receipt")
-                return result.receipt
+            if result is None:
+                return web.notfound()
+            
+            # created, accepted, or error
+            if result.created:
+                ssslog.info("Item created")
+                web.header("Content-Type", "application/atom+xml;type=entry")
+                web.header("Location", result.location)
+                web.ctx.status = "201 Created"
+                if config.return_deposit_receipt:
+                    ssslog.info("Returning deposit receipt")
+                    return result.receipt
+                else:
+                    ssslog.info("Omitting deposit receipt")
+                    return
             else:
-                ssslog.info("Omitting deposit receipt")
-                return
-        else:
-            ssslog.info("Returning Error")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = result.error_code
-            return result.error
+                ssslog.info("Returning Error")
+                web.header("Content-Type", "text/xml")
+                web.ctx.status = result.error_code
+                return result.error
+            
+        except SwordError as e:
+            return self.manage_error(e)
+        
+        
 
 class MediaResourceContent(SwordHttpHandler):
     """
@@ -391,12 +453,10 @@ class MediaResource(MediaResourceContent):
 
         # get a deposit object.  The PUT operation only supports a single binary deposit, not an Atom Multipart one
         # so if the deposit object has an atom part we should return an error
-        deposit = spec.get_deposit(web, auth)
-        if deposit.too_large:
-            error = ss.sword_error(spec.error_max_upload_size_exceeded, "Your deposit exceeds the maximum upload size limit")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "413 Request Entity Too Large"
-            return error
+        try:
+            deposit = self.get_deposit(web, auth)
+        except SwordError as e:
+            return e.error_document
         
         # now replace the content of the container
         result = ss.replace(id, deposit)
@@ -509,12 +569,10 @@ class MediaResource(MediaResourceContent):
             return web.notfound()
 
         # take the HTTP request and extract a Deposit object from it
-        deposit = spec.get_deposit(web, auth)
-        if deposit.too_large:
-            error = ss.sword_error(spec.error_max_upload_size_exceeded, "Your deposit exceeds the maximum upload size limit")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "413 Request Entity Too Large"
-            return error
+        try:
+            deposit = self.get_deposit(web, auth)
+        except SwordError as e:
+            return e.error_document
                 
         result = ss.add_content(id, deposit)
 
@@ -624,12 +682,10 @@ class Container(SwordHttpHandler):
             return e.error_document
 
         # take the HTTP request and extract a Deposit object from it
-        deposit = spec.get_deposit(web, auth)
-        if deposit.too_large:
-            error = ss.sword_error(spec.error_max_upload_size_exceeded, "Your deposit exceeds the maximum upload size limit")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "413 Request Entity Too Large"
-            return error
+        try:
+            deposit = self.get_deposit(web, auth)
+        except SwordError as e:
+            return e.error_document
         result = ss.replace(id, deposit)
 
         # FIXME: this is no longer relevant
@@ -695,12 +751,10 @@ class Container(SwordHttpHandler):
             return e.error_document
 
         # take the HTTP request and extract a Deposit object from it
-        deposit = spec.get_deposit(web, auth)
-        if deposit.too_large:
-            error = ss.sword_error(spec.error_max_upload_size_exceeded, "Your deposit exceeds the maximum upload size limit")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "413 Request Entity Too Large"
-            return error
+        try:
+            deposit = self.get_deposit(web, auth)
+        except SwordError as e:
+            return e.error_document
         result = ss.deposit_existing(id, deposit)
 
         if result is None:

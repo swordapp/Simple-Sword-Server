@@ -51,14 +51,26 @@ class ValidationException(Exception):
         self.message = message
 
 class HttpHeaders(object):
-    content_type = "Content-Type"
-    content_disposition = "Content-Disposition"
-    content_md5 = "Content-MD5"
-    packaging = "Packaging"
-    in_progress = "In-Progress"
-    on_behalf_of = "On-Behalf-Of"
-    metadata_relevant = "Metadata-Relevant"
-    slug = "Slug"
+    content_type = "content-type"
+    content_disposition = "content-disposition"
+    content_md5 = "content-md5"
+    packaging = "packaging"
+    in_progress = "in-progress"
+    on_behalf_of = "on-behalf-of"
+    metadata_relevant = "metadata-relevant"
+    slug = "slug"
+    content_length = "content-length"
+    
+    sword_headers = {
+        content_type : None,
+        content_md5: None,
+        packaging : "http://purl.org/net/sword/package/Binary",
+        in_progress : "false",
+        on_behalf_of : None,
+        metadata_relevant : "true",
+        slug : None,
+        content_length : 0
+    }
     
     allowed_values = {
         in_progress.lower() : ["true", "false"],
@@ -106,6 +118,29 @@ class HttpHeaders(object):
                 ssslog.error(header + " MUST be supplied, but is missing or empty")
                 raise ValidationException(header + " MUST be supplied, but is missing or empty")
 
+    def get_sword_headers(self, header_dict):
+        normalised_dict = dict([(h.lower(), v) for h, v in header_dict.items()])
+        headers = {}
+        for head, value in normalised_dict.items():
+            # is it a sword header
+            if HttpHeaders.sword_headers.has_key(head):
+                headers[head] = value
+        for head, default in HttpHeaders.sword_headers.items():
+            if head not in headers.keys():
+                headers[head] = default
+        return headers
+        
+    def extract_filename(self, header_dict):
+        normalised_dict = dict([(h.lower(), v) for h, v in header_dict.items()])
+        """ get the filename out of the content disposition header """
+        cd = normalised_dict.get(HttpHeaders.content_disposition)
+        if cd is not None:
+            ssslog.debug("Extracting filename from " + HttpHeaders.content_disposition + " " + str(cd))
+            # ok, this is a bit obtuse, but it was fun making it.  It's not hard to understand really, if you break
+            # it down
+            return cd[cd.find("filename=") + len("filename="):cd.find(";", cd.find("filename=")) if cd.find(";", cd.find("filename=")) > -1 else len(cd)]
+        else:
+            return None
 
 
 

@@ -200,6 +200,9 @@ class SWORDServer(object):
         deposit_uri = None
         derived_resource_uris = []
         if deposit.content is not None:
+        
+            if deposit.filename is None:
+                deposit.filename = "unnamed.file"
             fn = self.dao.store_content(collection, id, deposit.content, deposit.filename)
 
             # now that we have stored the atom and the content, we can invoke a package ingester over the top to extract
@@ -338,6 +341,8 @@ class SWORDServer(object):
             self.dao.remove_content(collection, id, True, keep_atom)
 
             # store the content file
+            if deposit.filename is None:
+                deposit.filename = "unnamed.file"
             fn = self.dao.store_content(collection, id, deposit.content, deposit.filename)
             ssslog.debug("New incoming file stored with filename " + fn)
 
@@ -477,6 +482,8 @@ class SWORDServer(object):
         if deposit.content is not None:
             ssslog.debug("Add request contains content part")
             
+            if deposit.filename is None:
+                deposit.filename = "unnamed.file"
             fn = self.dao.store_content(collection, id, deposit.content, deposit.filename)
             ssslog.debug("New incoming file stored with filename " + fn)
                 
@@ -600,6 +607,8 @@ class SWORDServer(object):
         if deposit.content is not None:
             ssslog.info("Append request has file content - adding to media resource")
             
+            if deposit.filename is None:
+                deposit.filename = "unnamed.file"
             fn = self.dao.store_content(collection, id, deposit.content, deposit.filename)
             ssslog.debug("New incoming file stored with filename " + fn)
 

@@ -1,7 +1,7 @@
 import web, os, base64
 from lxml import etree
 from datetime import datetime
-from spec import Namespaces
+from spec import Namespaces, HttpHeaders
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
@@ -52,6 +52,28 @@ class SWORDRequest(object):
         self.auth = None
         self.content_md5 = None
         self.slug = None
+        self.content_type = None
+        self.content_length = 0
+
+    def set_from_headers(self, headers):
+        for key, value in headers.items():
+            if value is not None:
+                if key == HttpHeaders.on_behalf_of:
+                    self.on_behalf_of = value
+                elif key == HttpHeaders.packaging:
+                    self.packaging = value
+                elif key == HttpHeaders.in_progress:
+                    self.in_progress = (value.strip() == "true")
+                elif key == HttpHeaders.metadata_relevant:
+                    self.metadata_relevant = (value.strip() == "true")
+                elif key == HttpHeaders.content_md5:
+                    self.content_md5 = value
+                elif key == HttpHeaders.slug:
+                    self.slug = value
+                elif key == HttpHeaders.content_type:
+                    self.content_type = value
+                elif key == HttpHeaders.content_length:
+                    self.content_length = int(value)
 
     def set_by_header(self, key, value):
         # FIXME: this is a webpy thing....
@@ -202,73 +224,6 @@ class SWORDSpec(object):
         
         # validates
         return None
-
-    def get_deposit(self, web, auth=None, atom_only=False):
-        # FIXME: this reads files into memory, and therefore does not scale
-        # FIXME: this does not deal with the Media Part headers on a multipart deposit
-        """
-        Take a web.py web object and extract from it the parameters and content required for a SWORD deposit.  This
-        includes determining whether this is an Atom Multipart request or not, and extracting the atom/payload where
-        appropriate.  It also includes extracting the HTTP headers which are relevant to deposit, and for those not
-        supplied providing their defaults in the returned DepositRequest object
-        """
-        d = DepositRequest()
-
-        # now go through the headers and populate the Deposit object
-        dict = web.ctx.environ
-
-        # get the headers that have been provided.  Any headers which have not been provided have default values
-        # supplied in the DepositRequest object's constructor
-        ssslog.debug("Incoming HTTP headers: " + str(dict))
-        empty_request = False
-        for head in dict.keys():
-            if head in self.sword_headers:
-                d.set_by_header(head, dict[head])
-            if head == "HTTP_CONTENT_DISPOSITION":
-                ssslog.debug("Reading Header %s : %s" % (head, dict[head]))
-                d.filename = self.extract_filename(dict[head])
-                ssslog.debug("Extracted filename %s from %s" % (d.filename, dict[head]))
-            if head == "CONTENT_TYPE":
-                ssslog.debug("Reading Header %s : %s" % (head, dict[head]))
-                ct = dict[head]
-                d.content_type = ct
-                if ct.startswith("application/atom+xml"):
-                    atom_only = True
-            if head == "CONTENT_LENGTH":
-                ssslog.debug("Reading Header %s : %s" % (head, dict[head]))
-                if dict[head] == "0":
-                    empty_request = True
-                cl = int(dict[head]) # content length as an integer
-                if cl > self.config.max_upload_size:
-                    d.too_large = True
-                    return d
-
-        # first we need to find out if this is a multipart or not
-        webin = web.input()
-        if len(webin) == 2:
-            ssslog.info("Received multipart deposit request")
-            d.atom = webin['atom']
-            # read the zip file from the base64 encoded string
-            d.content = base64.decodestring(webin['payload'])
-        elif not empty_request:
-            # if this wasn't a multipart, and isn't an empty request, then the data is in web.data().  This could be a binary deposit or
-            # an atom entry deposit - reply on the passed/determined argument to determine which
-            if atom_only:
-                ssslog.info("Received Entry deposit request")
-                d.atom = web.data()
-            else:
-                ssslog.info("Received Binary deposit request")
-                d.content = web.data()
-
-        # now just attach the authentication data and return
-        d.auth = auth
-        return d
-
-    def extract_filename(self, cd):
-        """ get the filename out of the content disposition header """
-        # ok, this is a bit obtuse, but it was fun making it.  It's not hard to understand really, if you break
-        # it down
-        return cd[cd.find("filename=") + len("filename="):cd.find(";", cd.find("filename=")) if cd.find(";", cd.find("filename=")) > -1 else len(cd)]
 
     def get_delete(self, dict, auth=None):
         """
