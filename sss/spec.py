@@ -86,6 +86,18 @@ class HttpHeaders(object):
             (in_progress.lower(), "MAY"),
             (on_behalf_of.lower(), "MAY"),
             (slug.lower(), "MAY")
+        ], 
+        "6.3.2" : [
+            (content_type.lower(), "SHOULD"),
+            (in_progress.lower(), "MAY"),
+            (on_behalf_of.lower(), "MAY"),
+            (slug.lower(), "MAY")
+        ],
+        "6.3.3" : [
+            (content_type.lower(), "SHOULD"),
+            (in_progress.lower(), "MAY"),
+            (on_behalf_of.lower(), "MAY"),
+            (slug.lower(), "MAY")
         ]
     }
     

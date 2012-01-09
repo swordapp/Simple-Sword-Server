@@ -269,12 +269,9 @@ class Collection(SwordHttpHandler):
         """
         ssslog.debug("POST to Collection (create new item); Incoming HTTP headers: " + str(web.ctx.environ))
         
-        # authenticate
         try:
+            # authenticate
             auth = self.http_basic_authenticate(web)
-                    
-            # if we get here authentication was successful and we carry on
-            ss = SWORDServer(config, auth, URIManager())
             
             # check the validity of the request
             self.validate_deposit_request(web, "6.3.3", "6.3.1", "6.3.2")
@@ -282,6 +279,8 @@ class Collection(SwordHttpHandler):
             # take the HTTP request and extract a Deposit object from it    
             deposit = self.get_deposit(web, auth)
             
+            # go ahead and process the deposit
+            ss = SWORDServer(config, auth, URIManager())
             result = ss.deposit_new(collection, deposit)
 
             if result is None:
