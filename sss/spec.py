@@ -153,6 +153,9 @@ class HttpHeaders(object):
             (on_behalf_of.lower(), "MAY"),
             (metadata_relevant.lower(), "MAY")
         ],
+        "6.8" : [
+            (on_behalf_of.lower(), "MAY"),
+        ],
         "9.3" : [
             (content_length.lower(), "SHOULD"),
             (in_progress.lower(), "MAY"),

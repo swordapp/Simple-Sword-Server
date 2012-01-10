@@ -47,6 +47,9 @@ urls = (
     '/html/(.+)', 'WebUI'
 )
 
+# USEFUL TERM MAPS
+#############################################################################
+
 HEADER_MAP = {
     HttpHeaders.in_progress : "HTTP_IN_PROGRESS",
     HttpHeaders.metadata_relevant : "HTTP_METADATA_RELEVANT",
@@ -66,7 +69,7 @@ STATUS_MAP = {
     415 : "415 Unsupported Media Type"
 }
 
-# HTTP HANDLERS
+# SWORD HTTP HANDLERS
 #############################################################################
 # Define a set of handlers for the various URLs defined above to be used by web.py
 
@@ -667,7 +670,7 @@ class Container(SwordHttpHandler):
         except SwordError as e:
             return self.manage_error(e)
 
-    def DELETE(self, id):
+    def DELETE(self, path):
         """
         DELETE the container (and everything in it) from the store, as identified by the supplied id
         Args:
@@ -676,88 +679,65 @@ class Container(SwordHttpHandler):
         """
         ssslog.debug("DELETE on Container (remove); Incoming HTTP headers: " + str(web.ctx.environ))
         
-        # find out if update is allowed
-        cfg = config
-        if not cfg.allow_delete:
-            spec = SWORDSpec(config)
-            ss = SWORDServer(config, None, URIManager())
-            error = ss.sword_error(spec.error_method_not_allowed_uri, "Delete operations not currently permitted")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "405 Method Not Allowed"
-            return error
-
-        # authenticate
         try:
+            # find out if update is allowed
+            if not config.allow_delete:
+                raise SwordError(error_uri=Errors.method_not_allowed, msg="Delete operations not currently permitted")
+            
+            # authenticate
             auth = self.http_basic_authenticate(web)
-        except SwordError as e:
-            return self.manage_error(e)
-
-        # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, auth, URIManager())
-        spec = SWORDSpec(config)
-
-        # check the validity of the request
-        invalid = self.validate_delete_request(web, "6.x")
-        if invalid is not None:
-            error = ss.sword_error(spec.error_bad_request_uri, invalid)
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "400 Bad Request"
-            return error
-
-        delete = self.get_delete(web, auth)
-
-        # next, before processing the request, let's check that the id is valid, and if not 404 the client
-        if not ss.exists(id):
-            return web.notfound()
-
-        # carry out the delete
-        result = ss.delete_container(id, delete)
-
-        # if there was an error, report it, otherwise return the deposit receipt
-        if result.error_code is not None:
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = result.error_code
-            return result.error
-        else:
+            
+            # check the validity of the request
+            self.validate_delete_request(web, "6.8")
+            
+            # get the delete request
+            delete = self.get_delete(web, auth)
+           
+            # do the delete
+            ss = SWORDServer(config, auth, URIManager())
+            result = ss.delete_container(path, delete)
+            
+            # no need to return any content
             web.ctx.status = "204 No Content"
             return
-
-class StatementHandler(SwordHttpHandler):
-    def GET(self, id):
-        ssslog.debug("GET on Statement (retrieve); Incoming HTTP headers: " + str(web.ctx.environ))
-        
-        # authenticate
-        try:
-            auth = self.http_basic_authenticate(web)
+            
         except SwordError as e:
             return self.manage_error(e)
 
-        # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(config, auth, URIManager())
+class StatementHandler(SwordHttpHandler):
+    def GET(self, path):
+        ssslog.debug("GET on Statement (retrieve); Incoming HTTP headers: " + str(web.ctx.environ))
+        
+        try:
+            # authenticate
+            auth = self.http_basic_authenticate(web)
+            
+            um = URIManager()
+            
+            # find out some details about the statement we are to deliver
+            accept_parameters, path = um.interpret_statement_path(path)
+            
+            ss = SWORDServer(config, auth, um)
+            
+            # first thing we need to do is check that there is an object to return, because otherwise we may throw a
+            # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
+            # which would be weird from a client perspective
+            if not ss.container_exists(path) or accept_parameters is None:
+                raise SwordError(status=404, empty=True)
+            
+            # now actually get hold of the representation of the statement and send it to the client
+            cont = ss.get_statement(path, accept_parameters)
+            return cont
+            
+        except SwordError as e:
+            return self.manage_error(e)
+            
 
-        # the get request will contain a suffix which is "rdf" or "atom" depending on
-        # the desired return type
-        accept_parameters = None
-        if id.endswith("rdf"):
-            accept_parameters = AcceptParameters(ContentType("application/rdf+xml"))
-            id = id[:-4]
-        elif id.endswith("atom"):
-            accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=feed"))
-            id = id[:-5]
-
-        # first thing we need to do is check that there is an object to return, because otherwise we may throw a
-        # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
-        # which would be weird from a client perspective
-        if not ss.exists(id):
-            return web.notfound()
-
-        # did we successfully negotiate a content type?
-        if accept_parameters is None:
-            return web.notfound()
-
-        # now actually get hold of the representation of the statement and send it to the client
-        cont = ss.get_statement(id, accept_parameters)
-        return cont
+# OTHER HTTP HANDLERS
+#############################################################################
+# Define a set of handlers for the various URLs defined above to be used by web.py
+# These ones aren't anything to do with the SWORD standard, they are just 
+# convenient to support the additional URIs produced          
 
 class Aggregation(SwordHttpHandler):
     def GET(self, id):
@@ -817,6 +797,17 @@ class URIManager(object):
     """
     def __init__(self):
         self.configuration = config
+
+    def interpret_statement_path(self, path):
+        accept_parameters = None
+        if path.endswith("rdf"):
+            accept_parameters = AcceptParameters(ContentType("application/rdf+xml"))
+            path = path[:-4]
+        elif path.endswith("atom"):
+            accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=feed"))
+            path = path[:-5]
+
+        return accept_parameters, path
 
     def is_atom_path(self, path):
         atom = False

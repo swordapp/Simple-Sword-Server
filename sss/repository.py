@@ -667,15 +667,13 @@ class SWORDServer(object):
         Return a DeleteResponse object with may contain a SWORD Error document or nothing at all
         """
         # check for standard possible errors, and throw if appropriate
-        er = self.check_delete_errors(delete)
-        if er is not None:
-            return er
+        self.check_delete_errors(delete)
             
         collection, id = self.um.interpret_oid(oid)
 
         # does the collection directory exist?  If not, we can't do a deposit
         if not self.exists(oid):
-            return None
+            return SwordError(status=404, empty=True)
 
         # request the deletion of the container
         self.dao.remove_container(collection, id)
