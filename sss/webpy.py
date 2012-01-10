@@ -53,6 +53,19 @@ HEADER_MAP = {
     HttpHeaders.on_behalf_of : "HTTP_ON_BEHALF_OF"
 }
 
+STATUS_MAP = {
+    400 : "400 Bad Request",
+    401 : "401 Unauthorized",
+    402 : "402 Payment Required",
+    403 : "403 Forbidden",
+    404 : "404 Not Found",
+    405 : "405 Method Not Allowed",
+    406 : "406 Not Acceptable",
+    412 : "412 Precodition Failed",
+    413 : "412 Request Entity Too Large",
+    415 : "415 Unsupported Media Type"
+}
+
 # HTTP HANDLERS
 #############################################################################
 # Define a set of handlers for the various URLs defined above to be used by web.py
@@ -65,22 +78,19 @@ class SwordHttpHandler(object):
 
         # if we're not supplied with an auth header, bounce
         if auth_header is None:
+            ssslog.info("No auth header supplied; will return 401 with SSS realm")
             web.header('WWW-Authenticate','Basic realm="SSS"')
-            web.ctx.status = '401 Unauthorized'
-            raise SwordError()
+            raise SwordError(status=401, empty=True)
         
         # deconstruct the BASIC auth header
         try:
             auth_header = re.sub('^Basic ', '', auth_header)
             username, password = base64.decodestring(auth_header).split(':')
+            ssslog.debug("successfully interpreted Basic Auth header")
         except Exception as e:
             # could be exceptions in either decoding the header or in doing a split
             ssslog.error("unable to interpret authentication header: " + auth_header)
-            ss = SWORDServer(config, None, URIManager())
-            error = ss.sword_error(Errors.bad_request)
-            web.ctx.status = "400 Bad Request"
-            web.header("Content-Type", "text/xml")
-            raise SwordError(error)
+            raise SwordError(error_uri=Errors.bad_request, msg="unable to interpret authentication header")
         
         ssslog.info("Authentication details: " + str(username) + ":" + str(password) + "; On Behalf Of: " + str(obo))
 
@@ -89,25 +99,28 @@ class SwordHttpHandler(object):
             auth = authenticator.basic_authenticate(username, password, obo)
         except AuthException as e:
             if e.authentication_failed:
-                web.ctx.status = '401 Unauthorized'
-                raise SwordError()
+                raise SwordError(status=401, empty=True)
             elif e.target_owner_unknown:
-                web.ctx.status = "403 Forbidden"
-                web.header("Content-Type", "text/xml")
-                ss = SWORDServer(config, None, URIManager())
-                error = ss.sword_error(Errors.target_owner_unknown, obo)
-                raise SwordError(error)
+                raise SwordError(error_uri=Errors.target_owner_unknown, msg="unknown user " + str(obo) + " as on behalf of user")
         
         return auth
     
     def manage_error(self, sword_error):
-        return sword_error.error_document
+        status = STATUS_MAP.get(sword_error.status, "400 Bad Request")
+        web.ctx.status = status
+        if not sword_error.empty:
+            web.header("Content-Type", "text/xml")
+            return sword_error.error_document
+        return
+    
+    def _map_webpy_headers(self, headers):
+        return dict([(c[0][5:].replace("_", "-") if c[0].startswith("HTTP_") else c[0].replace("_", "-"), c[1]) for c in headers.items()])
     
     def validate_deposit_request(self, web, entry_section=None, binary_section=None, multipart_section=None, allow_multipart=True):
         h = HttpHeaders()
 
         # map the headers to standard http
-        mapped_headers = dict([(c[0][5:].replace("_", "-") if c[0].startswith("HTTP_") else c[0].replace("_", "-"), c[1]) for c in web.ctx.environ.items()])
+        mapped_headers = self._map_webpy_headers(web.ctx.environ)
         ssslog.debug("Validating on header dictionary: " + str(mapped_headers))
   
         # run the validation
@@ -140,11 +153,7 @@ class SwordHttpHandler(object):
             h.validate(mapped_headers, section)
             
         except ValidationException as e:
-            ss = SWORDServer(config, None, URIManager())
-            error = ss.sword_error(Errors.bad_request, e.message)
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "400 Bad Request"
-            raise SwordError(error)
+            raise SwordError(error_uri=Errors.bad_request, msg=e.message)
             
     def get_deposit(self, web, auth=None, atom_only=False):
         # FIXME: this reads files into memory, and therefore does not scale
@@ -158,8 +167,8 @@ class SwordHttpHandler(object):
         d = DepositRequest()
         
         # map the webpy headers to something more standard
-        mapped_headers = dict([(c[0][5:].replace("_", "-") if c[0].startswith("HTTP_") else c[0].replace("_", "-"), c[1]) for c in web.ctx.environ.items()])
-
+        mapped_headers = self._map_webpy_headers(web.ctx.environ)
+        
         # get the headers that have been provided.  Any headers which have not been provided will
         # will have default values applied
         h = HttpHeaders()
@@ -172,11 +181,9 @@ class SwordHttpHandler(object):
         if d.content_length == 0:
             empty_request = True
         if d.content_length > config.max_upload_size:
-            ss = SWORDServer(config, auth, None)
-            error = ss.sword_error(Errors.max_upload_size_exceeded, 
-                            "Max upload size is " + config.max_upload_size + 
+            raise SwordError(error_uri=Errors.max_upload_size_exceeded, 
+                            msg="Max upload size is " + config.max_upload_size + 
                             "; incoming content length was " + str(cl))
-            raise SwordError(error)
         
         # find out if this is a multipart or not
         is_multipart = False
@@ -433,7 +440,7 @@ class MediaResource(MediaResourceContent):
         try:
             auth = self.http_basic_authenticate(web)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, auth, URIManager())
@@ -444,7 +451,7 @@ class MediaResource(MediaResourceContent):
         try:
             self.validate_deposit_request(web, "6.x", "6.x", "6.x", allow_multipart=False)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # next, before processing the request, let's check that the id is valid, and if not 404 the client
         if not ss.exists(id):
@@ -455,7 +462,7 @@ class MediaResource(MediaResourceContent):
         try:
             deposit = self.get_deposit(web, auth)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
         
         # now replace the content of the container
         result = ss.replace(id, deposit)
@@ -495,7 +502,7 @@ class MediaResource(MediaResourceContent):
         try:
             auth = self.http_basic_authenticate(web)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, auth, URIManager())
@@ -551,7 +558,7 @@ class MediaResource(MediaResourceContent):
         try:
             auth = self.http_basic_authenticate(web)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, auth, URIManager())
@@ -561,7 +568,7 @@ class MediaResource(MediaResourceContent):
         try:
             self.validate_deposit_request(web, "6.x", "6.x", "6.x")
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # next, before processing the request, let's check that the id is valid, and if not 404 the client
         if not ss.exists(id):
@@ -571,7 +578,7 @@ class MediaResource(MediaResourceContent):
         try:
             deposit = self.get_deposit(web, auth)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
                 
         result = ss.add_content(id, deposit)
 
@@ -614,7 +621,7 @@ class Container(SwordHttpHandler):
         try:
             auth = self.http_basic_authenticate(web)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SWORDServer(config, auth, URIManager())
@@ -668,7 +675,7 @@ class Container(SwordHttpHandler):
         try:
             auth = self.http_basic_authenticate(web)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, auth, URIManager())
@@ -678,13 +685,13 @@ class Container(SwordHttpHandler):
         try:
             self.validate_deposit_request(web, "6.x", "6.x", "6.x")
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # take the HTTP request and extract a Deposit object from it
         try:
             deposit = self.get_deposit(web, auth)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
         result = ss.replace(id, deposit)
 
         # FIXME: this is no longer relevant
@@ -737,7 +744,7 @@ class Container(SwordHttpHandler):
         try:
             auth = self.http_basic_authenticate(web)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, auth, URIManager())
@@ -747,13 +754,13 @@ class Container(SwordHttpHandler):
         try:
             self.validate_deposit_request(web, "6.x", "6.x", "6.x")
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # take the HTTP request and extract a Deposit object from it
         try:
             deposit = self.get_deposit(web, auth)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
         result = ss.deposit_existing(id, deposit)
 
         if result is None:
@@ -802,7 +809,7 @@ class Container(SwordHttpHandler):
         try:
             auth = self.http_basic_authenticate(web)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on
         ss = SWORDServer(config, auth, URIManager())
@@ -842,7 +849,7 @@ class StatementHandler(SwordHttpHandler):
         try:
             auth = self.http_basic_authenticate(web)
         except SwordError as e:
-            return e.error_document
+            return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SWORDServer(config, auth, URIManager())

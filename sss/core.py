@@ -1,7 +1,8 @@
 import web, os, base64
 from lxml import etree
 from datetime import datetime
-from spec import Namespaces, HttpHeaders
+from spec import Namespaces, HttpHeaders, Errors
+from info import __version__
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
@@ -16,8 +17,56 @@ ssslog = logging.getLogger(__name__)
 # them to exchange messages agnostically to the interface
 
 class SwordError(Exception):
-    def __init__(self, error_document=""):
-        self.error_document = error_document
+    def __init__(self, error_uri=None, msg=None, status=None, verbose_description=None, empty=False):
+        self.ns = Namespaces()
+        self.emap = {"sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS}
+        
+        self.error_uri = error_uri if error_uri is not None else Errors.bad_request
+        self.status = status if status is not None else Errors().get_status(self.error_uri)
+        if not empty:
+            self.error_document = self._generate_error_document(msg, verbose_description)
+        else:
+            self.error_document = ""
+        self.empty = empty
+        
+    def _generate_error_document(self, msg, verbose_description):
+        entry = etree.Element(self.ns.SWORD + "error", nsmap=self.emap)
+        entry.set("href", self.error_uri)
+
+        author = etree.SubElement(entry, self.ns.ATOM + "author")
+        name = etree.SubElement(author, self.ns.ATOM + "name")
+        name.text = "SSS"
+
+        title = etree.SubElement(entry, self.ns.ATOM + "title")
+        title.text = "ERROR: " + self.error_uri
+
+        # Date last updated (i.e. NOW)
+        updated = etree.SubElement(entry, self.ns.ATOM + "updated")
+        updated.text = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Generator - identifier for this server software
+        generator = etree.SubElement(entry, self.ns.ATOM + "generator")
+        generator.set("uri", "http://www.swordapp.org/sss")
+        generator.set("version", __version__)
+
+        # Summary field from metadata
+        summary = etree.SubElement(entry, self.ns.ATOM + "summary")
+        summary.set("type", "text")
+        text = "Error Description: " + self.error_uri
+        if msg is not None:
+            text += " ; " + msg
+        summary.text = text
+
+        # treatment
+        treatment = etree.SubElement(entry, self.ns.SWORD + "treatment")
+        treatment.text = "processing failed"
+        
+        # verbose description
+        if verbose_description is not None:
+            vb = etree.SubElement(entry, self.ns.SWORD + "verboseDescription")
+            vb.text = verbose_description
+
+        return etree.tostring(entry, pretty_print=True)
 
 class AuthException(Exception):
     def __init__(self, authentication_failed=False, target_owner_unknown=False):

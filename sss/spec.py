@@ -42,9 +42,23 @@ class Errors(object):
     checksum_mismatch = "http://purl.org/net/sword/error/ErrorChecksumMismatch"
     bad_request = "http://purl.org/net/sword/error/ErrorBadRequest"
     target_owner_unknown = "http://purl.org/net/sword/error/TargetOwnerUnknown"
-    mediation_not = "http://purl.org/net/sword/error/MediationNotAllowed"
+    mediation_not_allowed = "http://purl.org/net/sword/error/MediationNotAllowed"
     method_not_allowed = "http://purl.org/net/sword/error/MethodNotAllowed"
     max_upload_size_exceeded = "http://purl.org/net/sword/error/MaxUploadSizeExceeded"
+    
+    statuses = {
+        content : 415,
+        checksum_mismatch: 412,
+        bad_request: 400,
+        target_owner_unknown: 403,
+        mediation_not_allowed : 412,
+        method_not_allowed: 405,
+        max_upload_size_exceeded: 413
+    }
+    
+    def get_status(self, uri):
+        status = Errors.statuses.get(uri)
+        return status if status is not None else 400
 
 class ValidationException(Exception):
     def __init__(self, message):
