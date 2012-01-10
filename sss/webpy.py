@@ -286,35 +286,25 @@ class Collection(SwordHttpHandler):
             # take the HTTP request and extract a Deposit object from it    
             deposit = self.get_deposit(web, auth)
             
-            # go ahead and process the deposit
+            # go ahead and process the deposit.  Anything other than a success
+            # will be raised as a sword error
             ss = SWORDServer(config, auth, URIManager())
             result = ss.deposit_new(collection, deposit)
-
-            if result is None:
-                return web.notfound()
             
-            # created, accepted, or error
-            if result.created:
-                ssslog.info("Item created")
-                web.header("Content-Type", "application/atom+xml;type=entry")
-                web.header("Location", result.location)
-                web.ctx.status = "201 Created"
-                if config.return_deposit_receipt:
-                    ssslog.info("Returning deposit receipt")
-                    return result.receipt
-                else:
-                    ssslog.info("Omitting deposit receipt")
-                    return
+            # created
+            ssslog.info("Item created")
+            web.header("Content-Type", "application/atom+xml;type=entry")
+            web.header("Location", result.location)
+            web.ctx.status = "201 Created"
+            if config.return_deposit_receipt:
+                ssslog.info("Returning deposit receipt")
+                return result.receipt
             else:
-                ssslog.info("Returning Error")
-                web.header("Content-Type", "text/xml")
-                web.ctx.status = result.error_code
-                return result.error
+                ssslog.info("Omitting deposit receipt")
+                return
             
         except SwordError as e:
             return self.manage_error(e)
-        
-        
 
 class MediaResourceContent(SwordHttpHandler):
     """

@@ -1,6 +1,6 @@
 import os, hashlib, uuid
-from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException
-from spec import Namespaces
+from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException, SwordError
+from spec import Namespaces, Errors
 from lxml import etree
 from datetime import datetime
 from zipfile import ZipFile
@@ -179,14 +179,12 @@ class SWORDServer(object):
         -deposit:       the DepositRequest object to be processed
         Returns a DepositResponse object which will contain the Deposit Receipt or a SWORD Error
         """
-        # check for standard possible errors, and throw if appropriate
-        er = self.check_deposit_errors(deposit)
-        if er is not None:
-            return er
+        # check for standard possible errors, raises an exception if appropriate
+        self.check_deposit_errors(deposit)
 
         # does the collection directory exist?  If not, we can't do a deposit
         if not self.dao.collection_exists(collection):
-            return None
+            raise SwordError(status=404, empty=True)
 
         # create us a new container, passing in the Slug value (which may be None) as the proposed id
         id = self.dao.create_container(collection, deposit.slug)
@@ -312,10 +310,8 @@ class SWORDServer(object):
         - deposit:  a DepositRequest object
         Return a DepositResponse containing the Deposit Receipt or a SWORD Error
         """
-        # check for standard possible errors, and throw if appropriate
-        er = self.check_deposit_errors(deposit)
-        if er is not None:
-            return er
+        # check for standard possible errors, raises an exception if appropriate
+        self.check_deposit_errors(deposit)
 
         collection, id = self.um.interpret_oid(oid)
 
@@ -460,10 +456,8 @@ class SWORDServer(object):
         """
         ssslog.info("Adding content to media resource of container " + oid)
         
-        # check for standard possible errors, and throw if appropriate
-        er = self.check_deposit_errors(deposit)
-        if er is not None:
-            return er
+        # check for standard possible errors, raises an exception if appropriate
+        self.check_deposit_errors(deposit)
 
         collection, id = self.um.interpret_oid(oid)
         
@@ -566,10 +560,8 @@ class SWORDServer(object):
         """
         ssslog.debug("Deposit onto an existing container " + oid)
         
-        # check for standard possible errors, and throw if appropriate
-        er = self.check_deposit_errors(deposit)
-        if er is not None:
-            return er
+        # check for standard possible errors, raises an exception if appropriate
+        self.check_deposit_errors(deposit)
 
         collection, id = self.um.interpret_oid(oid)
 
@@ -919,12 +911,13 @@ class SWORDServer(object):
     def check_deposit_errors(self, deposit):
         # have we been asked for an invalid package format
         if deposit.packaging == self.configuration.error_content_package:
-            spec = SWORDSpec(self.configuration)
-            dr = DepositResponse()
-            error_doc = self.sword_error(spec.error_content_uri, "Unsupported Packaging format specified")
-            dr.error = error_doc
-            dr.error_code = "415 Unsupported Media Type"
-            return dr
+            raise SwordError(error_uri=Errors.content, status=415, msg="Unsupported Packaging format specified")
+            #spec = SWORDSpec(self.configuration)
+            #dr = DepositResponse()
+            #error_doc = self.sword_error(spec.error_content_uri, "Unsupported Packaging format specified")
+            #dr.error = error_doc
+            #dr.error_code = "415 Unsupported Media Type"
+            #return dr
 
         # have we been given an incompatible MD5?
         if deposit.content_md5 is not None:
@@ -932,22 +925,24 @@ class SWORDServer(object):
             m.update(deposit.content)
             digest = m.hexdigest()
             if digest != deposit.content_md5:
-                spec = SWORDSpec(self.configuration)
-                dr = DepositResponse()
-                error_doc = self.sword_error(spec.error_checksum_mismatch_uri, "Content-MD5 header does not match file checksum")
-                dr.error = error_doc
-                dr.error_code = "412 Precondition Failed"
-                return dr
+                raise SwordError(error_uri=Errors.checksum_mismatch, msg="Content-MD5 header does not match file checksum")
+                #spec = SWORDSpec(self.configuration)
+                #dr = DepositResponse()
+                #error_doc = self.sword_error(spec.error_checksum_mismatch_uri, "Content-MD5 header does not match file checksum")
+                #dr.error = error_doc
+                #dr.error_code = "412 Precondition Failed"
+                #return dr
 
         # have we been asked to do a mediated deposit, when this is not allowed?
         if deposit.auth is not None:
             if deposit.auth.obo is not None and not self.configuration.mediation:
-                spec = SWORDSpec(self.configuration)
-                dr = DepositResponse()
-                error_doc = self.sword_error(spec.error_mediation_not_allowed_uri)
-                dr.error = error_doc
-                dr.error_code = "412 Precondition Failed"
-                return dr
+                raise SwordError(error_uri=Errors.mediation_not_allowed)
+                #spec = SWORDSpec(self.configuration)
+                #dr = DepositResponse()
+                #error_doc = self.sword_error(spec.error_mediation_not_allowed_uri)
+                #dr.error = error_doc
+                #dr.error_code = "412 Precondition Failed"
+                #return dr
 
         return None
 
