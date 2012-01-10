@@ -202,6 +202,7 @@ class MediaResourceResponse(object):
         self.url = None
         self.filepath = None
         self.packaging = None
+        self.content_type = None
 
 class DeleteRequest(SWORDRequest):
     """

@@ -281,7 +281,7 @@ class ServiceDocument(SwordHttpHandler):
             return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(config, auth, URIManager())
+        ss = SWORDServer(config, auth)
         sd = ss.service_document(sub_path)
         web.header("Content-Type", "text/xml")
         return sd
@@ -306,7 +306,7 @@ class Collection(SwordHttpHandler):
             return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(config, auth, URIManager())
+        ss = SWORDServer(config, auth)
         cl = sss.list_collection(collection)
         web.header("Content-Type", "text/xml")
         return cl
@@ -332,7 +332,7 @@ class Collection(SwordHttpHandler):
             
             # go ahead and process the deposit.  Anything other than a success
             # will be raised as a sword error
-            ss = SWORDServer(config, auth, URIManager())
+            ss = SWORDServer(config, auth)
             result = ss.deposit_new(collection, deposit)
             
             # created
@@ -366,15 +366,9 @@ class MediaResourceContent(SwordHttpHandler):
         """
         ssslog.debug("GET on MediaResourceContent; Incoming HTTP headers: " + str(web.ctx.environ))
         
-        um = URIManager()
-        
-        # check to see if we're after the .atom version of the content
-        # also strips the .atom if necessary
-        atom, path = um.is_atom_path(path)
-        
         # NOTE: this method is not authenticated - we imagine sharing this URL with end-users who will just want
         # to retrieve the content.  It's only for the purposes of example, anyway
-        ss = SWORDServer(config, None, um)
+        ss = SWORDServer(config, None)
 
         # first thing we need to do is check that there is an object to return, because otherwise we may throw a
         # 406 Not Acceptable without looking first to see if there is even any media to content negotiate for
@@ -382,37 +376,28 @@ class MediaResourceContent(SwordHttpHandler):
         if not ss.media_resource_exists(path):
             return web.notfound()
         
-        accept_parameters = None
-        if not atom:
-            ssslog.info("Received request for package form of media resource")
-            
-            # get the content negotiation headers
-            accept_header = web.ctx.environ.get("HTTP_ACCEPT")
-            accept_packaging_header = web.ctx.environ.get("HTTP_ACCEPT_PACKAGING")
-            
-            # do the negotiation
-            default_accept_parameters, acceptable = config.get_media_resource_formats()
-            cn = ContentNegotiator(default_accept_parameters, acceptable)
-            accept_parameters = cn.negotiate(accept=accept_header, accept_packaging=accept_packaging_header)
-            
-            ssslog.info("Chosen format: " + str(accept_parameters))
-        else:
-            ssslog.info("Received request for atom feed form of media resource")
-            accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=feed"))
-
-        # did we successfully negotiate a content type?
-        if accept_parameters is None:
-            error = SwordError(error_uri=Errors.content, status=406, msg="Requsted Accept/Accept-Packaging is not supported by this server")
-            return self.manage_error(error)
+        # get the content negotiation headers
+        accept_header = web.ctx.environ.get("HTTP_ACCEPT")
+        accept_packaging_header = web.ctx.environ.get("HTTP_ACCEPT_PACKAGING")
         
-        # if we did, we can get hold of the media resource
-        media_resource = ss.get_media_resource(path, accept_parameters)
+        # do the negotiation
+        default_accept_parameters, acceptable = config.get_media_resource_formats()
+        cn = ContentNegotiator(default_accept_parameters, acceptable)
+        accept_parameters = cn.negotiate(accept=accept_header, accept_packaging=accept_packaging_header)
+        
+        ssslog.info("Conneg format: " + str(accept_parameters))
+
+        try:
+            # can get hold of the media resource
+            media_resource = ss.get_media_resource(path, accept_parameters)
+        except SwordError as e:
+            return self.manage_error(e)
 
         # either send the client a redirect, or stream the content out
         if media_resource.redirect:
             return web.found(media_resource.url)
         else:
-            web.header("Content-Type", accept_parameters.content_type.mimetype())
+            web.header("Content-Type", media_resource.content_type)
             if media_resource.packaging is not None:
                 web.header("Packaging", media_resource.packaging)
             f = open(media_resource.filepath, "r")
@@ -453,7 +438,7 @@ class MediaResource(MediaResourceContent):
             deposit = self.get_deposit(web, auth)
             
             # now replace the content of the container
-            ss = SWORDServer(config, auth, URIManager())
+            ss = SWORDServer(config, auth)
             result = ss.replace(path, deposit)
             
             # replaced
@@ -490,7 +475,7 @@ class MediaResource(MediaResourceContent):
             delete = self.get_delete(web, auth)
             
             # carry out the delete
-            ss = SWORDServer(config, auth, URIManager())
+            ss = SWORDServer(config, auth)
             result = ss.delete_content(path, delete)
             
             # just return, no need to give any more feedback
@@ -524,7 +509,7 @@ class MediaResource(MediaResourceContent):
             deposit = self.get_deposit(web, auth)
             
             # if we get here authentication was successful and we carry on
-            ss = SWORDServer(config, auth, URIManager())
+            ss = SWORDServer(config, auth)
             result = ss.add_content(path, deposit)
             
             web.header("Content-Type", "application/atom+xml;type=entry")
@@ -558,7 +543,7 @@ class Container(SwordHttpHandler):
         try:
             auth = self.http_basic_authenticate(web)
             
-            ss = SWORDServer(config, auth, URIManager())
+            ss = SWORDServer(config, auth)
             
             # first thing we need to do is check that there is an object to return, because otherwise we may throw a
             # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
@@ -609,7 +594,7 @@ class Container(SwordHttpHandler):
             # get the deposit object
             deposit = self.get_deposit(web, auth)
             
-            ss = SWORDServer(config, auth, URIManager())
+            ss = SWORDServer(config, auth)
             result = ss.replace(path, deposit)
             
             web.header("Location", result.location)
@@ -651,7 +636,7 @@ class Container(SwordHttpHandler):
             
             deposit = self.get_deposit(web, auth)
             
-            ss = SWORDServer(config, auth, URIManager())
+            ss = SWORDServer(config, auth)
             result = ss.deposit_existing(path, deposit)
             
             # NOTE: spec says 201 Created for multipart and 200 Ok for metadata only
@@ -694,7 +679,7 @@ class Container(SwordHttpHandler):
             delete = self.get_delete(web, auth)
            
             # do the delete
-            ss = SWORDServer(config, auth, URIManager())
+            ss = SWORDServer(config, auth)
             result = ss.delete_container(path, delete)
             
             # no need to return any content
@@ -712,21 +697,16 @@ class StatementHandler(SwordHttpHandler):
             # authenticate
             auth = self.http_basic_authenticate(web)
             
-            um = URIManager()
-            
-            # find out some details about the statement we are to deliver
-            accept_parameters, path = um.interpret_statement_path(path)
-            
-            ss = SWORDServer(config, auth, um)
+            ss = SWORDServer(config, auth)
             
             # first thing we need to do is check that there is an object to return, because otherwise we may throw a
             # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
             # which would be weird from a client perspective
-            if not ss.container_exists(path) or accept_parameters is None:
+            if not ss.container_exists(path):
                 raise SwordError(status=404, empty=True)
             
             # now actually get hold of the representation of the statement and send it to the client
-            cont = ss.get_statement(path, accept_parameters)
+            cont = ss.get_statement(path)
             return cont
             
         except SwordError as e:
@@ -740,11 +720,10 @@ class StatementHandler(SwordHttpHandler):
 # convenient to support the additional URIs produced          
 
 class Aggregation(SwordHttpHandler):
-    def GET(self, id):
+    def GET(self, path):
         # in this case we just redirect back to the Edit-URI with a 303 See Other
-        um = URIManager()
-        col, oid = um.interpret_oid(id)
-        edit_uri = um.edit_uri(col, oid)
+        ss = SWORDServer(config, None)
+        edit_uri = ss.get_edit_uri()
         web.ctx.status = "303 See Other"
         web.header("Content-Location", edit_uri)
         return
@@ -753,16 +732,16 @@ class WebUI(SwordHttpHandler):
     """
     Class to provide a basic web interface to the store for convenience
     """
-    def GET(self, id=None):
-        if id is not None:
-            if id.find("/") >= 0:
-                ip = ItemPage(URIManager())
-                return ip.get_item_page(id)
+    def GET(self, path=None):
+        if path is not None:
+            if path.find("/") >= 0:
+                ip = ItemPage()
+                return ip.get_item_page(path)
             else:
-                cp = CollectionPage(URIManager())
-                return cp.get_collection_page(id)
+                cp = CollectionPage()
+                return cp.get_collection_page(path)
         else:
-            hp = HomePage(config, URIManager())
+            hp = HomePage(config)
             return hp.get_home_page()
 
 class Part(SwordHttpHandler):
@@ -770,7 +749,7 @@ class Part(SwordHttpHandler):
     Class to provide access to the component parts of the object on the server
     """
     def GET(self, path):
-        ss = SWORDServer(config, None, URIManager())
+        ss = SWORDServer(config, None)
         
         # if we did, we can get hold of the media resource
         fh = ss.get_part(path)
@@ -782,7 +761,7 @@ class Part(SwordHttpHandler):
         web.ctx.status = "200 OK"
         return fh.read()
         
-    def PUT(self, id):
+    def PUT(self, path):
         # FIXME: the spec says that we should either support this or return
         # 405 Method Not Allowed.
         # This would be useful for DepositMO compliance, so we should consider
@@ -790,94 +769,7 @@ class Part(SwordHttpHandler):
         web.ctx.status = "405 Method Not Allowed"
         return
         
-        
-class URIManager(object):
-    """
-    Class for providing a single point of access to all identifiers used by SSS
-    """
-    def __init__(self):
-        self.configuration = config
-
-    def interpret_statement_path(self, path):
-        accept_parameters = None
-        if path.endswith("rdf"):
-            accept_parameters = AcceptParameters(ContentType("application/rdf+xml"))
-            path = path[:-4]
-        elif path.endswith("atom"):
-            accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=feed"))
-            path = path[:-5]
-
-        return accept_parameters, path
-
-    def is_atom_path(self, path):
-        atom = False
-        if path.endswith(".atom"):
-            path = path[:-5]
-            atom = True
-        return atom, path
-
-    def html_url(self, collection, id=None):
-        """ The url for the HTML splash page of an object in the store """
-        if id is not None:
-            return self.configuration.base_url + "html/" + collection + "/" + id
-        return self.configuration.base_url + "html/" + collection
-
-    def sd_uri(self, sub=True):
-        uri = self.configuration.base_url + "sd-uri"
-        if sub:
-            uri += "/" + str(uuid.uuid4())
-        return uri
-
-    def col_uri(self, id):
-        """ The url for a collection on the server """
-        return self.configuration.base_url + "col-uri/" + id
-
-    def edit_uri(self, collection, id):
-        """ The Edit-URI """
-        return self.configuration.base_url + "edit-uri/" + collection + "/" + id
-
-    def em_uri(self, collection, id):
-        """ The EM-URI """
-        return self.configuration.base_url + "em-uri/" + collection + "/" + id
-
-    def cont_uri(self, collection, id):
-        """ The Cont-URI """
-        return self.configuration.base_url + "cont-uri/" + collection + "/" + id
-
-    def state_uri(self, collection, id, type):
-        root = self.configuration.base_url + "state-uri/" + collection + "/" + id
-        if type == "atom":
-            return root + ".atom"
-        elif type == "ore":
-            return root + ".rdf"
-
-    def part_uri(self, collection, id, filename):
-        """ The URL for accessing the parts of an object in the store """
-        return self.configuration.base_url + "part-uri/" + collection + "/" + id + "/" + urllib.quote(filename)
-
-    def agg_uri(self, collection, id):
-        return self.configuration.base_url + "agg-uri/" + collection + "/" + id
-
-    def atom_id(self, collection, id):
-        """ An ID to use for Atom Entries """
-        return "tag:container@sss/" + collection + "/" + id
-
-    def interpret_oid(self, oid):
-        """
-        Take an object id from a URL and interpret the collection and id terms.
-        Returns a tuple of (collection, id)
-        """
-        collection, id = oid.split("/", 1)
-        return collection, id
-        
-    def interpret_path(self, path):
-        """
-        Take a file path from a URL and interpret the collection, id and filename terms.
-        Returns a tuple of (collection, id, filename)
-        """
-        collection, id, fn = path.split("/", 2)
-        return collection, id, fn
-        
+                
 # WEB SERVER
 #######################################################################
 # This is the bit which actually invokes the web.py server when this module is run

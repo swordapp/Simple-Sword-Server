@@ -1,5 +1,5 @@
 import os
-from repository import DAO
+from repository import DAO, URIManager
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
@@ -15,10 +15,10 @@ class HomePage(WebPage):
     """
     Welcome / home page
     """
-    def __init__(self, config, uri_manager):
+    def __init__(self, config):
         self.config = config
         self.dao = DAO(self.config)
-        self.um = uri_manager
+        self.um = URIManager()
         
     def get_home_page(self):
         cfg = self.config
@@ -39,9 +39,9 @@ class HomePage(WebPage):
         return self._wrap_html("Simple SWORDv2 Server", frag, head_frag)
 
 class CollectionPage(WebPage):
-    def __init__(self, uri_manager):
+    def __init__(self):
         self.dao = DAO()
-        self.um = uri_manager
+        self.um = URIManager()
         
     def get_collection_page(self, id):
         frag = "<h1>Collection: " + id + "</h1>"
@@ -59,9 +59,9 @@ class CollectionPage(WebPage):
         return self._wrap_html("Collection: " + id, frag, head_frag)
 
 class ItemPage(WebPage):
-    def __init__(self, uri_manager):
+    def __init__(self):
         self.dao = DAO()
-        self.um = uri_manager
+        self.um = URIManager()
     
     def get_item_page(self, oid):
         collection, id = self.um.interpret_oid(oid)

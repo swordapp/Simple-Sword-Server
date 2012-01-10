@@ -1,9 +1,10 @@
-import os, hashlib, uuid
+import os, hashlib, uuid, urllib
 from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException, SwordError
 from spec import Namespaces, Errors
 from lxml import etree
 from datetime import datetime
 from zipfile import ZipFile
+from negotiator import AcceptParameters, ContentType
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
@@ -35,12 +36,99 @@ class SSSAuthenticator(object):
             return Auth(self.config.user, obo)
         return Auth(self.config.user)
 
+class URIManager(object):
+    """
+    Class for providing a single point of access to all identifiers used by SSS
+    """
+    def __init__(self, config):
+        self.configuration = config
+
+    def interpret_statement_path(self, path):
+        accept_parameters = None
+        if path.endswith("rdf"):
+            accept_parameters = AcceptParameters(ContentType("application/rdf+xml"))
+            path = path[:-4]
+        elif path.endswith("atom"):
+            accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=feed"))
+            path = path[:-5]
+
+        return accept_parameters, path
+
+    def is_atom_path(self, path):
+        atom = False
+        if path.endswith(".atom"):
+            path = path[:-5]
+            atom = True
+        return atom, path
+
+    def html_url(self, collection, id=None):
+        """ The url for the HTML splash page of an object in the store """
+        if id is not None:
+            return self.configuration.base_url + "html/" + collection + "/" + id
+        return self.configuration.base_url + "html/" + collection
+
+    def sd_uri(self, sub=True):
+        uri = self.configuration.base_url + "sd-uri"
+        if sub:
+            uri += "/" + str(uuid.uuid4())
+        return uri
+
+    def col_uri(self, id):
+        """ The url for a collection on the server """
+        return self.configuration.base_url + "col-uri/" + id
+
+    def edit_uri(self, collection, id):
+        """ The Edit-URI """
+        return self.configuration.base_url + "edit-uri/" + collection + "/" + id
+
+    def em_uri(self, collection, id):
+        """ The EM-URI """
+        return self.configuration.base_url + "em-uri/" + collection + "/" + id
+
+    def cont_uri(self, collection, id):
+        """ The Cont-URI """
+        return self.configuration.base_url + "cont-uri/" + collection + "/" + id
+
+    def state_uri(self, collection, id, type):
+        root = self.configuration.base_url + "state-uri/" + collection + "/" + id
+        if type == "atom":
+            return root + ".atom"
+        elif type == "ore":
+            return root + ".rdf"
+
+    def part_uri(self, collection, id, filename):
+        """ The URL for accessing the parts of an object in the store """
+        return self.configuration.base_url + "part-uri/" + collection + "/" + id + "/" + urllib.quote(filename)
+
+    def agg_uri(self, collection, id):
+        return self.configuration.base_url + "agg-uri/" + collection + "/" + id
+
+    def atom_id(self, collection, id):
+        """ An ID to use for Atom Entries """
+        return "tag:container@sss/" + collection + "/" + id
+
+    def interpret_oid(self, oid):
+        """
+        Take an object id from a URL and interpret the collection and id terms.
+        Returns a tuple of (collection, id)
+        """
+        collection, id = oid.split("/", 1)
+        return collection, id
+        
+    def interpret_path(self, path):
+        """
+        Take a file path from a URL and interpret the collection, id and filename terms.
+        Returns a tuple of (collection, id, filename)
+        """
+        collection, id, fn = path.split("/", 2)
+        return collection, id, fn
+
 class SWORDServer(object):
     """
     The main SWORD Server class.  This class deals with all the CRUD requests as provided by the web.py HTTP
     handlers
     """
-    def __init__(self, config, auth, uri_manager):
+    def __init__(self, config, auth):
 
         # get the configuration
         self.configuration = config
@@ -54,7 +142,7 @@ class SWORDServer(object):
         self.ns = Namespaces()
 
         # create a URIManager for us to use
-        self.um = uri_manager
+        self.um = URIManager(self.configuration)
 
         # build the namespace maps that we will use during serialisation
         self.sdmap = {None : self.ns.APP_NS, "sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS, "dcterms" : self.ns.DC_NS}
@@ -64,10 +152,15 @@ class SWORDServer(object):
         self.emap = {"sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS}
 
     def container_exists(self, oid):
-        return self.exists(oid)
+        # find out some details about the statement we are to deliver
+        accept_parameters, path = self.um.interpret_statement_path(oid)
+        return self.exists(path)
 
     def media_resource_exists(self, oid):
-        return self.exists(oid)
+        # check to see if we're after the .atom version of the content
+        # also strips the .atom if necessary
+        atom, path = self.um.is_atom_path(oid)
+        return self.exists(path)
 
     def exists(self, oid):
         """
@@ -285,10 +378,23 @@ class SWORDServer(object):
         # by the time this is called, we should already know that we can return this type, so there is no need for
         # any checking, we just get on with it
 
+        # requesting from the atom URI will get you the atom format, irrespective
+        # of the content negotiation
+        atom, path = self.um.is_atom_path(oid)
+        if atom:
+            ssslog.info("Received request for atom feed form of media resource")
+            accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=feed"))
+        else:
+            ssslog.info("Received request for package form of media resource")
+
+        # did we successfully negotiate a content type?
+        if accept_parameters is None:
+            raise SwordError(error_uri=Errors.content, status=406, msg="Requsted Accept/Accept-Packaging is not supported by this server")
+
         ssslog.info("Request media type with media format: " + accept_parameters.media_format())
 
         # ok, so break the id down into collection and object
-        collection, id = self.um.interpret_oid(oid)
+        collection, id = self.um.interpret_oid(path)
 
         # make a MediaResourceResponse object for us to use
         mr = MediaResourceResponse()
@@ -305,6 +411,7 @@ class SWORDServer(object):
         packager = self.configuration.get_package_disseminator(accept_parameters.media_format())(self.dao, self.um)
         mr.filepath = packager.package(collection, id)
         mr.packaging = packager.get_uri()
+        mr.content_type = accept_parameters.content_type.mimetype()
 
         return mr
     
@@ -527,6 +634,10 @@ class SWORDServer(object):
         dr.created = True
         return dr
 
+    def get_edit_uri(self, path):
+        col, oid = self.um.interpret_oid(path)
+        return self.um.edit_uri(col, oid)
+    
     def get_container(self, oid, accept_parameters):
         """
         Get a representation of the container in the requested content type
@@ -839,8 +950,9 @@ class SWORDServer(object):
 
         return entry
 
-    def get_statement(self, oid, accept_parameters):
-        collection, id = self.um.interpret_oid(oid)
+    def get_statement(self, oid):
+        accept_parameters, path = self.um.interpret_statement_path(oid)
+        collection, id = self.um.interpret_oid(path)
         if accept_parameters.content_type.mimetype() == "application/rdf+xml":
             return self.dao.get_statement_content(collection, id)
         elif accept_parameters.content_type.mimetype() == "application/atom+xml;type=feed":
