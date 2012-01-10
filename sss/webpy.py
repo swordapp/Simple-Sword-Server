@@ -451,7 +451,7 @@ class MediaResource(MediaResourceContent):
         except SwordError as e:
             return self.manage_error(e)
         
-    def DELETE(self, id):
+    def DELETE(self, path):
         """
         DELETE the contents of an object in the store (but not the object's container), leaving behind an empty
         container for further use
@@ -478,7 +478,7 @@ class MediaResource(MediaResourceContent):
             
             # carry out the delete
             ss = SWORDServer(config, auth, URIManager())
-            result = ss.delete_content(id, delete)
+            result = ss.delete_content(path, delete)
             
             # just return, no need to give any more feedback
             web.ctx.status = "204 No Content" # No Content
@@ -487,7 +487,7 @@ class MediaResource(MediaResourceContent):
         except SwordError as e:
             return self.manage_error(e)
     
-    def POST(self, id):
+    def POST(self, path):
         """
         POST a simple package into the specified media resource
         Args:
@@ -497,68 +497,40 @@ class MediaResource(MediaResourceContent):
         ssslog.debug("POST to Media Resource (add new file); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if update is allowed
-        cfg = config
-        if not cfg.allow_update:
-            spec = SWORDSpec(config)
-            ss = SWORDServer(config, None, URIManager())
-            error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "405 Method Not Allowed"
-            return error
+        if not config.allow_update:
+            error = SwordError(error_uri=Errors.method_not_allowed, msg="Update operations not currently permitted")
+            return self.manage_error(error)
             
         # authenticate
         try:
             auth = self.http_basic_authenticate(web)
-        except SwordError as e:
-            return self.manage_error(e)
-
-        # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, auth, URIManager())
-        spec = SWORDSpec(config)
-
-        # check the validity of the request
-        try:
-            self.validate_deposit_request(web, "6.x", "6.x", "6.x")
-        except SwordError as e:
-            return self.manage_error(e)
-
-        # next, before processing the request, let's check that the id is valid, and if not 404 the client
-        if not ss.exists(id):
-            return web.notfound()
-
-        # take the HTTP request and extract a Deposit object from it
-        try:
+            
+            # check the validity of the request
+            self.validate_deposit_request(web, None, "6.7.1", None, allow_multipart=False)
+            
             deposit = self.get_deposit(web, auth)
-        except SwordError as e:
-            return self.manage_error(e)
-                
-        result = ss.add_content(id, deposit)
-
-        if result is None:
-            return web.notfound()
-
-        cfg = config
-
-        # created, accepted, or error
-        if result.created:
+            
+            # if we get here authentication was successful and we carry on
+            ss = SWORDServer(config, auth, URIManager())
+            result = ss.add_content(path, deposit)
+            
             web.header("Content-Type", "application/atom+xml;type=entry")
             web.header("Location", result.location)
             web.ctx.status = "201 Created"
-            if cfg.return_deposit_receipt:
+            if config.return_deposit_receipt:
                 return result.receipt
             else:
                 return
-        else:
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = result.error_code
-            return result.error
+            
+        except SwordError as e:
+            return self.manage_error(e)
 
 class Container(SwordHttpHandler):
     """
     Class to deal with requests to the container, which is represented by the main Atom Entry document returned in
     the deposit receipt (Edit-URI).
     """
-    def GET(self, id):
+    def GET(self, path):
         """
         GET a representation of the container in the appropriate (content negotiated) format as identified by
         the supplied id
@@ -572,39 +544,35 @@ class Container(SwordHttpHandler):
         # authenticate
         try:
             auth = self.http_basic_authenticate(web)
+            
+            ss = SWORDServer(config, auth, URIManager())
+            
+            # first thing we need to do is check that there is an object to return, because otherwise we may throw a
+            # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
+            # which would be weird from a client perspective
+            if not ss.container_exists(path):
+                return web.notfound()
+                
+            # get the content negotiation headers
+            accept_header = web.ctx.environ.get("HTTP_ACCEPT")
+            accept_packaging_header = web.ctx.environ.get("HTTP_ACCEPT_PACKAGING")
+            
+            # do the negotiation
+            default_accept_parameters, acceptable = config.get_container_formats()
+            cn = ContentNegotiator(default_accept_parameters, acceptable)
+            accept_parameters = cn.negotiate(accept=accept_header)
+            ssslog.info("Container requested in format: " + str(accept_parameters))
+            
+            # did we successfully negotiate a content type?
+            if accept_parameters is None:
+                raise SwordError(error_uri=Error.content, status=415, empty=True)
+            
+            # now actually get hold of the representation of the container and send it to the client
+            cont = ss.get_container(path, accept_parameters)
+            return cont
+            
         except SwordError as e:
             return self.manage_error(e)
-
-        # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(config, auth, URIManager())
-
-        # first thing we need to do is check that there is an object to return, because otherwise we may throw a
-        # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
-        # which would be weird from a client perspective
-        if not ss.exists(id):
-            return web.notfound()
-
-        # do some content negotiation
-        default_accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=entry"))
-        acceptable = [
-            AcceptParameters(ContentType("application/atom+xml;type=entry")),
-            AcceptParameters(ContentType("application/atom+xml;type=feed")),
-            AcceptParameters(ContentType("application/rdf+xml"))
-        ]
-        accept_header = web.ctx.environ.get("HTTP_ACCEPT")
-        accept_packaging_header = web.ctx.environ.get("HTTP_ACCEPT_PACKAGING")
-        
-        cn = ContentNegotiator(default_accept_parameters, acceptable)
-        accept_parameters = cn.negotiate(accept=accept_header)
-
-        # did we successfully negotiate a content type?
-        if accept_parameters is None:
-            web.ctx.status = "415 Unsupported Media Type"
-            return
-
-        # now actually get hold of the representation of the container and send it to the client
-        cont = ss.get_container(id, accept_parameters)
-        return cont
 
     def PUT(self, id):
         """
@@ -614,14 +582,9 @@ class Container(SwordHttpHandler):
         ssslog.debug("PUT on Container (replace); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if update is allowed
-        cfg = config
-        if not cfg.allow_update:
-            spec = SWORDSpec(config)
-            ss = SWORDServer(config, None, URIManager())
-            error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "405 Method Not Allowed"
-            return error
+        if not config.allow_update:
+            error = SwordError(error_uri=Errors.method_not_allowed, msg="Update operations not currently permitted")
+            return self.manage_error(error)
         
         # authenticate
         try:
@@ -657,7 +620,7 @@ class Container(SwordHttpHandler):
         # created, accepted, or error
         if result.created:
             web.header("Location", result.location)
-            if cfg.return_deposit_receipt:
+            if config.return_deposit_receipt:
                 web.header("Content-Type", "application/atom+xml;type=entry")
                 web.ctx.status = "200 OK"
                 return result.receipt
@@ -683,14 +646,9 @@ class Container(SwordHttpHandler):
         ssslog.debug("POST to Container (add new content and metadata); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if update is allowed
-        cfg = config
-        if not cfg.allow_update:
-            spec = SWORDSpec(config)
-            ss = SWORDServer(config, None, URIManager())
-            error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "405 Method Not Allowed"
-            return error
+        if not config.allow_update:
+            error = SwordError(error_uri=Errors.method_not_allowed, msg="Update operations not currently permitted")
+            return self.manage_error(error)
 
         # authenticate
         try:
@@ -728,7 +686,7 @@ class Container(SwordHttpHandler):
         if result.created:
             web.header("Location", result.location)
             web.ctx.status = "200 OK"
-            if cfg.return_deposit_receipt:
+            if config.return_deposit_receipt:
                 web.header("Content-Type", "application/atom+xml;type=entry")
                 return result.receipt
             else:

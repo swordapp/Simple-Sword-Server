@@ -123,6 +123,14 @@ class HttpHeaders(object):
         ],
         "6.6" : [
             (on_behalf_of.lower(), "MAY"),
+        ],
+        "6.7.1" : [
+            (content_type.lower(), "SHOULD"),
+            (content_disposition.lower(), "MUST"),
+            (content_md5.lower(), "SHOULD"),
+            (packaging.lower(), "MAY"),
+            (on_behalf_of.lower(), "MAY"),
+            (slug.lower(), "MAY")
         ]
     }
     

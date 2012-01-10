@@ -63,6 +63,9 @@ class SWORDServer(object):
         self.smap = {"rdf" : self.ns.RDF_NS, "ore" : self.ns.ORE_NS, "sword" : self.ns.SWORD_NS}
         self.emap = {"sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS}
 
+    def container_exists(self, oid):
+        return self.exists(oid)
+
     def media_resource_exists(self, oid):
         return self.exists(oid)
 
@@ -464,7 +467,7 @@ class SWORDServer(object):
         
         # does the collection directory exist?  If not, we can't do a deposit
         if not self.exists(oid):
-            return None
+            raise SwordError(status=404, empty=True)
 
         # load the statement
         s = self.dao.load_statement(collection, id)

@@ -107,6 +107,15 @@ DEFAULT_CONFIG = """
     ],
     "media_resource_default" : {
         "content_type" : "application/zip"
+    },
+    
+    "container_formats" : [
+        {"content_type" : "application/atom+xml;type=entry" },
+        {"content_type" : "application/atom+xml;type=feed" },
+        {"content_type" : "application/rdf+xml" }
+    ],
+    "container_format_default" : {
+        "content_type" : "application/atom+xml;type=entry"
     }
     
 }
@@ -127,6 +136,15 @@ class Configuration(object):
         # at the moment they are just set in the configuration as strings, and
         # it's a bit of a faff to include the code that was there before into
         # the json string.  How much does this matter?
+    
+    def get_container_formats(self):
+        default_params = self._get_accept_params(self.container_format_default)
+        
+        acceptable = []
+        for format in self.container_formats:
+            acceptable.append(self._get_accept_params(format))
+        
+        return default_params, acceptable
     
     def get_media_resource_formats(self):
         default_params = self._get_accept_params(self.media_resource_default)
