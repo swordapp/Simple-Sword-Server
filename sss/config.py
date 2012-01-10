@@ -1,5 +1,6 @@
 import os, uuid, sys, json
 from ingesters_disseminators import DefaultEntryIngester, DefaultDisseminator, FeedDisseminator, BinaryIngester, SimpleZipIngester, METSDSpaceIngester
+from negotiator import AcceptParameters, ContentType
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
@@ -96,7 +97,18 @@ DEFAULT_CONFIG = """
     "allow_delete" : true,
     
     # we can turn off deposit receipts, which is allowed by the specification
-    "return_deposit_receipt" : true
+    "return_deposit_receipt" : true,
+
+    "media_resource_formats" : [
+        {"content_type" : "application/zip", "packaging": "http://purl.org/net/sword/package/SimpleZip"},
+        {"content_type" : "application/zip"},
+        {"content_type" : "application/atom+xml;type=feed"},
+        {"content_type" : "text/html"}
+    ],
+    "media_resource_default" : {
+        "content_type" : "application/zip"
+    }
+    
 }
 """
         
@@ -115,7 +127,25 @@ class Configuration(object):
         # at the moment they are just set in the configuration as strings, and
         # it's a bit of a faff to include the code that was there before into
         # the json string.  How much does this matter?
+    
+    def get_media_resource_formats(self):
+        default_params = self._get_accept_params(self.media_resource_default)
         
+        acceptable = []
+        for format in self.media_resource_formats:
+            acceptable.append(self._get_accept_params(format))
+        
+        return default_params, acceptable
+        
+    def _get_accept_params(self, obj):
+        params = AcceptParameters()
+        for k, v in obj.items():
+            if k == "content_type":
+                params.content_type = ContentType(v)
+            elif k == "packaging":
+                params.packaging = v
+        return params
+    
     def get_package_disseminator(self, media_format):
         path = self.package_disseminators.get(media_format)
         return self._get_class(path)

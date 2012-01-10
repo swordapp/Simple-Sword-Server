@@ -63,6 +63,9 @@ class SWORDServer(object):
         self.smap = {"rdf" : self.ns.RDF_NS, "ore" : self.ns.ORE_NS, "sword" : self.ns.SWORD_NS}
         self.emap = {"sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS}
 
+    def media_resource_exists(self, oid):
+        return self.exists(oid)
+
     def exists(self, oid):
         """
         Does the specified object id exist?

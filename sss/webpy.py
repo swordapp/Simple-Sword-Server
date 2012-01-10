@@ -312,7 +312,7 @@ class MediaResourceContent(SwordHttpHandler):
     the EM-URI.  It has its own class handler because it is a distinct resource, which does not necessarily resolve to
     the same location as the EM-URI.  See the Atom and SWORD specs for more details.
     """
-    def GET(self, id):
+    def GET(self, path):
         """
         GET the media resource content in the requested format (web request will include content negotiation via
         Accept header)
@@ -320,74 +320,49 @@ class MediaResourceContent(SwordHttpHandler):
         - id:   the ID of the object in the store
         Returns the content in the requested format
         """
-        
         ssslog.debug("GET on MediaResourceContent; Incoming HTTP headers: " + str(web.ctx.environ))
         
+        um = URIManager()
+        
         # check to see if we're after the .atom version of the content
-        atom = False
-        if id.endswith(".atom"):
-            id = id[:-5]
-            atom = True
+        # also strips the .atom if necessary
+        atom, path = um.is_atom_path(path)
         
         # NOTE: this method is not authenticated - we imagine sharing this URL with end-users who will just want
         # to retrieve the content.  It's only for the purposes of example, anyway
-        ss = SWORDServer(config, None, URIManager())
-        spec = SWORDSpec(config)
+        ss = SWORDServer(config, None, um)
 
         # first thing we need to do is check that there is an object to return, because otherwise we may throw a
-        # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
+        # 406 Not Acceptable without looking first to see if there is even any media to content negotiate for
         # which would be weird from a client perspective
-        if not ss.exists(id):
+        if not ss.media_resource_exists(path):
             return web.notfound()
         
         accept_parameters = None
         if not atom:
-            # do some content negotiation
-            default_accept_parameters = AcceptParameters(ContentType("application/zip"))
-            acceptable = [
-                AcceptParameters(ContentType("application/zip"), packaging="http://purl.org/net/sword/package/SimpleZip"),
-                AcceptParameters(ContentType("application/zip")),
-                AcceptParameters(ContentType("application/atom+xml;type=feed")),
-                AcceptParameters(ContentType("text/html"))
-            ]
+            ssslog.info("Received request for package form of media resource")
+            
+            # get the content negotiation headers
             accept_header = web.ctx.environ.get("HTTP_ACCEPT")
             accept_packaging_header = web.ctx.environ.get("HTTP_ACCEPT_PACKAGING")
             
+            # do the negotiation
+            default_accept_parameters, acceptable = config.get_media_resource_formats()
             cn = ContentNegotiator(default_accept_parameters, acceptable)
             accept_parameters = cn.negotiate(accept=accept_header, accept_packaging=accept_packaging_header)
             
-            # do some content negotiation
-            #cn = ContentNegotiator()
-
-            # if no Accept header, then we will get this back
-            #cn.default_type = "application"
-            #cn.default_subtype = "zip"
-            #cn.default_packaging = None
-
-            # The list of acceptable formats (in order of preference).
-            # FIXME: ultimately to replace this with the negotiator
-            #cn.acceptable = [
-            #        ContentType("application", "zip", None, "http://purl.org/net/sword/package/SimpleZip"),
-            #        ContentType("application", "zip"),
-            #        ContentType("application", "atom+xml", "type=feed"),
-            #        ContentType("text", "html")
-            #    ]
-
-            # do the negotiation
-            #content_type = cn.negotiate(web.ctx.environ)
+            ssslog.info("Chosen format: " + str(accept_parameters))
         else:
+            ssslog.info("Received request for atom feed form of media resource")
             accept_parameters = AcceptParameters(ContentType("application/atom+xml;type=feed"))
-            # content_type = ContentType("application", "atom+xml", "type=feed")
 
         # did we successfully negotiate a content type?
         if accept_parameters is None:
-            error = ss.sword_error(spec.error_content_uri, "Requsted Accept/Accept-Packaging is not supported by this server")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "406 Not Acceptable"
-            return error
+            error = SwordError(error_uri=Errors.content, status=406, msg="Requsted Accept/Accept-Packaging is not supported by this server")
+            return self.manage_error(error)
         
         # if we did, we can get hold of the media resource
-        media_resource = ss.get_media_resource(id, accept_parameters)
+        media_resource = ss.get_media_resource(path, accept_parameters)
 
         # either send the client a redirect, or stream the content out
         if media_resource.redirect:
@@ -926,6 +901,13 @@ class URIManager(object):
     """
     def __init__(self):
         self.configuration = config
+
+    def is_atom_path(self, path):
+        atom = False
+        if path.endswith(".atom"):
+            path = path[:-5]
+            atom = True
+        return atom, path
 
     def html_url(self, collection, id=None):
         """ The url for the HTML splash page of an object in the store """
