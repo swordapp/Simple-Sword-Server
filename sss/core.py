@@ -259,37 +259,6 @@ class SWORDSpec(object):
         self.error_method_not_allowed_uri = "http://purl.org/net/sword/error/MethodNotAllowed"
         self.error_max_upload_size_exceeded = "http://purl.org/net/sword/error/MaxUploadSizeExceeded"
 
-    def validate_delete_request(self, web):
-        dict = web.ctx.environ
-
-        # get each of the allowed SWORD headers that can be validated and see if they do
-        ip = dict.get("HTTP_IN_PROGRESS")
-        if ip is not None and ip != "true" and ip != "false":
-            return "In-Progress must be 'true' or 'false'"
-
-        sm = dict.get("HTTP_METADATA_RELEVANT")
-        if sm is not None and sm != "true" and sm != "false":
-            return "Metadata-Relevant must be 'true' or 'false'"
-        
-        # validates
-        return None
-
-    def get_delete(self, dict, auth=None):
-        """
-        Take a web.py web object and extract from it the parameters and content required for a SWORD delete request.
-        It mainly extracts the HTTP headers which are relevant to delete, and for those not supplied provides thier
-        defaults in the returned DeleteRequest object
-        """
-        d = DeleteRequest()
-
-        # we just want to parse out the headers that are relevant
-        for head in dict.keys():
-            if head in self.sword_headers:
-                d.set_by_header(head, dict[head])
-
-        # now just attach the authentication data and return
-        d.auth = auth
-        return d
         
 class Statement(object):
     """

@@ -1,6 +1,6 @@
 import web, re, base64, urllib, uuid
 from web.wsgiserver import CherryPyWSGIServer
-from core import Auth, SWORDSpec, SwordError, AuthException, DepositRequest
+from core import Auth, SWORDSpec, SwordError, AuthException, DepositRequest, DeleteRequest
 from negotiator import ContentNegotiator, AcceptParameters, ContentType
 from webui import HomePage, CollectionPage, ItemPage
 from spec import Errors, HttpHeaders, ValidationException
@@ -116,6 +116,19 @@ class SwordHttpHandler(object):
     def _map_webpy_headers(self, headers):
         return dict([(c[0][5:].replace("_", "-") if c[0].startswith("HTTP_") else c[0].replace("_", "-"), c[1]) for c in headers.items()])
     
+    def validate_delete_request(self, web, section):
+        h = HttpHeaders()
+        
+        # map the headers to standard http
+        mapped_headers = self._map_webpy_headers(web.ctx.environ)
+        ssslog.debug("Validating on header dictionary: " + str(mapped_headers))
+        
+        try:
+            # now validate the http headers
+            h.validate(mapped_headers, section)
+        except ValidationError as e:
+            raise SwordError(error_uri=Errors.bad_request, msg=e.message)
+    
     def validate_deposit_request(self, web, entry_section=None, binary_section=None, multipart_section=None, allow_multipart=True):
         h = HttpHeaders()
 
@@ -215,6 +228,24 @@ class SwordHttpHandler(object):
         else:
             d.filename = h.extract_filename(mapped_headers)
         
+        # now just attach the authentication data and return
+        d.auth = auth
+        return d
+        
+    def get_delete(self, web, auth=None):
+        """
+        Take a web.py web object and extract from it the parameters and content required for a SWORD delete request.
+        It mainly extracts the HTTP headers which are relevant to delete, and for those not supplied provides thier
+        defaults in the returned DeleteRequest object
+        """
+        d = DeleteRequest()
+        
+        # map the webpy headers to something more standard
+        mapped_headers = self._map_webpy_headers(web.ctx.environ)
+        
+        h = HttpHeaders()
+        d.set_from_headers(h.get_sword_headers(mapped_headers))
+
         # now just attach the authentication data and return
         d.auth = auth
         return d
@@ -382,7 +413,7 @@ class MediaResource(MediaResourceContent):
     MediaResourceContent are allowed to be separate entities, which can behave differently (see the specs for more
     details).  For the purposes of SSS, we are treating them the same for convenience.
     """
-    def PUT(self, id):
+    def PUT(self, path):
         """
         PUT a new package onto the object identified by the supplied id
         Args:
@@ -392,57 +423,34 @@ class MediaResource(MediaResourceContent):
         ssslog.debug("PUT on Media Resource (replace); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if update is allowed
-        cfg = config
-        if not cfg.allow_update:
-            spec = SWORDSpec(config)
-            ss = SWORDServer(config, None, URIManager())
-            error = ss.sword_error(spec.error_method_not_allowed_uri, "Update operations not currently permitted")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "405 Method Not Allowed"
-            return error
+        if not config.allow_update:
+            error = SwordError(error_uri=Errors.method_not_allowed, msg="Update operations not currently permitted")
+            return self.manage_error(error)
 
         # authenticate
         try:
             auth = self.http_basic_authenticate(web)
-        except SwordError as e:
-            return self.manage_error(e)
-
-        # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, auth, URIManager())
-        spec = SWORDSpec(config)
-
-        # check the validity of the request (note that multipart requests are not permitted in this method)
-        # check the validity of the request
-        try:
-            self.validate_deposit_request(web, "6.x", "6.x", "6.x", allow_multipart=False)
-        except SwordError as e:
-            return self.manage_error(e)
-
-        # next, before processing the request, let's check that the id is valid, and if not 404 the client
-        if not ss.exists(id):
-            return web.notfound()
-
-        # get a deposit object.  The PUT operation only supports a single binary deposit, not an Atom Multipart one
-        # so if the deposit object has an atom part we should return an error
-        try:
+            
+            # check the validity of the request (note that multipart requests 
+            # and atom-only are not permitted in this method)
+            self.validate_deposit_request(web, None, "6.5.1", None, allow_multipart=False)
+            
+            # get a deposit object.  The PUT operation only supports a single binary deposit, not an Atom Multipart one
+            # so if the deposit object has an atom part we should return an error
             deposit = self.get_deposit(web, auth)
-        except SwordError as e:
-            return self.manage_error(e)
-        
-        # now replace the content of the container
-        result = ss.replace(id, deposit)
-
-        # created, accepted or error
-        if result.created:
+            
+            # now replace the content of the container
+            ss = SWORDServer(config, auth, URIManager())
+            result = ss.replace(path, deposit)
+            
+            # replaced
             ssslog.info("Content replaced")
             web.ctx.status = "204 No Content" # notice that this is different from the POST as per AtomPub
             return
-        else:
-            ssslog.info("Returning Error")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = result.error_code
-            return result.error
-
+            
+        except SwordError as e:
+            return self.manage_error(e)
+        
     def DELETE(self, id):
         """
         DELETE the contents of an object in the store (but not the object's container), leaving behind an empty
@@ -454,51 +462,30 @@ class MediaResource(MediaResourceContent):
         ssslog.debug("DELETE on Media Resource (remove content, leave container); Incoming HTTP headers: " + str(web.ctx.environ))
         
         # find out if delete is allowed
-        cfg = config
-        if not cfg.allow_delete:
-            spec = SWORDSpec(config)
-            ss = SWORDServer(config, None, URIManager())
-            error = ss.sword_error(spec.error_method_not_allowed_uri, "Delete operations not currently permitted")
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "405 Method Not Allowed"
-            return error
+        if not config.allow_delete:
+            error = SwordError(error_uri=Errors.method_not_allowed, msg="Delete operations not currently permitted")
+            return self.manage_error(error)
 
         # authenticate
         try:
             auth = self.http_basic_authenticate(web)
-        except SwordError as e:
-            return self.manage_error(e)
-
-        # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, auth, URIManager())
-        spec = SWORDSpec(config)
-
-        # check the validity of the request
-        invalid = spec.validate_delete_request(web)
-        if invalid is not None:
-            error = ss.sword_error(spec.error_bad_request_uri, invalid)
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = "400 Bad Request"
-            return error
-
-        # parse the delete request out of the HTTP request
-        delete = spec.get_delete(web.ctx.environ, auth)
-
-        # next, before processing the request, let's check that the id is valid, and if not 404 the client
-        if not ss.exists(id):
-            return web.notfound()
-
-        # carry out the delete
-        result = ss.delete_content(id, delete)
-
-        # if there was an error, report it, otherwise return the deposit receipt
-        if result.error_code is not None:
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = result.error_code
-            return result.error
-        else:
+            
+            # check the validity of the request
+            self.validate_delete_request(web, "6.6")
+            
+            # parse the delete request out of the HTTP request
+            delete = self.get_delete(web, auth)
+            
+            # carry out the delete
+            ss = SWORDServer(config, auth, URIManager())
+            result = ss.delete_content(id, delete)
+            
+            # just return, no need to give any more feedback
             web.ctx.status = "204 No Content" # No Content
             return
+            
+        except SwordError as e:
+            return self.manage_error(e)
     
     def POST(self, id):
         """
@@ -781,14 +768,14 @@ class Container(SwordHttpHandler):
         spec = SWORDSpec(config)
 
         # check the validity of the request
-        invalid = spec.validate_delete_request(web)
+        invalid = self.validate_delete_request(web, "6.x")
         if invalid is not None:
             error = ss.sword_error(spec.error_bad_request_uri, invalid)
             web.header("Content-Type", "text/xml")
             web.ctx.status = "400 Bad Request"
             return error
 
-        delete = spec.get_delete(web.ctx.environ, auth)
+        delete = self.get_delete(web, auth)
 
         # next, before processing the request, let's check that the id is valid, and if not 404 the client
         if not ss.exists(id):

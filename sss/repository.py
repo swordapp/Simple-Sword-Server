@@ -320,7 +320,7 @@ class SWORDServer(object):
 
         # does the object directory exist?  If not, we can't do a deposit
         if not self.exists(oid):
-            return None
+            return SwordError(status=404, empty=True)
                 
         # first figure out what to do about the metadata
         keep_atom = False
@@ -406,16 +406,14 @@ class SWORDServer(object):
         """
         ssslog.info("Deleting content of resource " + oid)
         
-        # check for standard possible errors, and throw if appropriate
-        er = self.check_delete_errors(delete)
-        if er is not None:
-            return er
+        # check for standard possible errors, this throws an error if appropriate
+        self.check_delete_errors(delete)
 
         collection, id = self.um.interpret_oid(oid)
 
         # does the collection directory exist?  If not, we can't do a deposit
         if not self.exists(oid):
-            return None
+            raise SwordError(status=404, empty=True)
 
         # remove all the old files before adding the new.
         # notice that we keep the metadata, as this is considered bound to the
@@ -891,13 +889,7 @@ class SWORDServer(object):
         # have we been asked to do a mediated delete, when this is not allowed?
         if delete.auth is not None:
             if delete.auth.obo is not None and not self.configuration.mediation:
-                spec = SWORDSpec(self.configuration)
-                dr = DepositResponse()
-                error_doc = self.sword_error(spec.error_mediation_not_allowed_uri)
-                dr.error = error_doc
-                dr.error_code = "412 Precondition Failed"
-                return dr
-        return None
+                raise SwordError(Errors.mediation_not_allowed)
 
     def check_mediated_error(self, deposit):
         # have we been asked to do a mediated deposit, when this is not allowed?
