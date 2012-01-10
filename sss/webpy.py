@@ -129,7 +129,7 @@ class SwordHttpHandler(object):
         except ValidationError as e:
             raise SwordError(error_uri=Errors.bad_request, msg=e.message)
     
-    def validate_deposit_request(self, web, entry_section=None, binary_section=None, multipart_section=None, allow_multipart=True):
+    def validate_deposit_request(self, web, entry_section=None, binary_section=None, multipart_section=None, empty_section=None, allow_multipart=True, allow_empty=False):
         h = HttpHeaders()
 
         # map the headers to standard http
@@ -149,18 +149,28 @@ class SwordHttpHandler(object):
 
             # if we get to here then we have a valid multipart or no multipart
             is_multipart = False
+            is_empty = False
             if len(webin) != 2: # if it is not multipart
-                if web.data() is None: # and there is no content
-                    raise ValidationException("No content sent to the server")
+                if web.data() is None or web.data().strip() == "": # FIXME: this does not look safe to scale
+                    if allow_empty:
+                        ssslog.info("Validating an empty deposit (could be a control operation)")
+                        is_empty = True
+                    else:
+                        raise ValidationException("No content sent to the server")
             else:
+                ssslog.info("Validating a multipart deposit")
                 is_multipart = True
             
             is_entry = False
             content_type = mapped_headers.get("CONTENT-TYPE")
             if content_type is not None and content_type.startswith("application/atom+xml"):
+                ssslog.info("Validating a atom-only deposit")
                 is_entry = True
             
-            section = entry_section if is_entry else multipart_section if is_multipart else binary_section
+            if not is_entry and not is_multipart and not is_empty:
+                ssslog.info("Validating a binary deposit")
+            
+            section = entry_section if is_entry else multipart_section if is_multipart else empty_section if is_empty else binary_section
             
             # now validate the http headers
             h.validate(mapped_headers, section)
@@ -574,7 +584,7 @@ class Container(SwordHttpHandler):
         except SwordError as e:
             return self.manage_error(e)
 
-    def PUT(self, id):
+    def PUT(self, path):
         """
         PUT a new Entry over the existing entry, or a multipart request over
         both the existing metadata and the existing content
@@ -586,39 +596,19 @@ class Container(SwordHttpHandler):
             error = SwordError(error_uri=Errors.method_not_allowed, msg="Update operations not currently permitted")
             return self.manage_error(error)
         
-        # authenticate
         try:
+            # authenticate
             auth = self.http_basic_authenticate(web)
-        except SwordError as e:
-            return self.manage_error(e)
-
-        # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, auth, URIManager())
-        spec = SWORDSpec(config)
-
-        # check the validity of the request
-        try:
-            self.validate_deposit_request(web, "6.x", "6.x", "6.x")
-        except SwordError as e:
-            return self.manage_error(e)
-
-        # take the HTTP request and extract a Deposit object from it
-        try:
+            
+            # check the validity of the request
+            self.validate_deposit_request(web, "6.5.2", None, "6.5.3")
+            
+            # get the deposit object
             deposit = self.get_deposit(web, auth)
-        except SwordError as e:
-            return self.manage_error(e)
-        result = ss.replace(id, deposit)
-
-        # FIXME: this is no longer relevant
-        # take the HTTP request and extract a Deposit object from it
-        #deposit = spec.get_deposit(web, auth, atom_only=True)
-        #result = ss.update_metadata(id, deposit)
-
-        if result is None:
-            return web.notfound()
-
-        # created, accepted, or error
-        if result.created:
+            
+            ss = SWORDServer(config, auth, URIManager())
+            result = ss.replace(path, deposit)
+            
             web.header("Location", result.location)
             if config.return_deposit_receipt:
                 web.header("Content-Type", "application/atom+xml;type=entry")
@@ -627,15 +617,14 @@ class Container(SwordHttpHandler):
             else:
                 web.ctx.status = "204 No Content"
                 return
-        else:
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = result.error_code
-            return result.error
-
+                
+        except SwordError as e:
+            return self.manage_error(e)
+    
     # NOTE: this POST action on the Container is represented in the specification
     # by a POST to the SE-IRI (The SWORD Edit IRI), sections 6.7.2 and 6.7.3 and
     # also to support completing unfinished deposits as per section 9.3
-    def POST(self, id):
+    def POST(self, path):
         """
         POST some new content into the container identified by the supplied id,
         or complete an existing deposit (using the In-Progress header)
@@ -650,40 +639,23 @@ class Container(SwordHttpHandler):
             error = SwordError(error_uri=Errors.method_not_allowed, msg="Update operations not currently permitted")
             return self.manage_error(error)
 
-        # authenticate
         try:
+             # authenticate
             auth = self.http_basic_authenticate(web)
-        except SwordError as e:
-            return self.manage_error(e)
-
-        # if we get here authentication was successful and we carry on
-        ss = SWORDServer(config, auth, URIManager())
-        spec = SWORDSpec(config)
-
-        # check the validity of the request
-        try:
-            self.validate_deposit_request(web, "6.x", "6.x", "6.x")
-        except SwordError as e:
-            return self.manage_error(e)
-
-        # take the HTTP request and extract a Deposit object from it
-        try:
+            
+            # check the validity of the request
+            self.validate_deposit_request(web, "6.7.2", None, "6.7.3", "9.3", allow_empty=True)
+            
             deposit = self.get_deposit(web, auth)
-        except SwordError as e:
-            return self.manage_error(e)
-        result = ss.deposit_existing(id, deposit)
-
-        if result is None:
-            # we couldn't find the id
-            return web.notfound()
-        
-        # NOTE: spec says 201 Created for multipart and 200 Ok for metadata only
-        # we have implemented 200 OK across the board, in the understanding that
-        # in this case the spec is incorrect (correction need to be implemented
-        # asap)
-        
-        # created, accepted or error
-        if result.created:
+            
+            ss = SWORDServer(config, auth, URIManager())
+            result = ss.deposit_existing(path, deposit)
+            
+            # NOTE: spec says 201 Created for multipart and 200 Ok for metadata only
+            # we have implemented 200 OK across the board, in the understanding that
+            # in this case the spec is incorrect (correction need to be implemented
+            # asap)
+            
             web.header("Location", result.location)
             web.ctx.status = "200 OK"
             if config.return_deposit_receipt:
@@ -691,10 +663,9 @@ class Container(SwordHttpHandler):
                 return result.receipt
             else:
                 return
-        else:
-            web.header("Content-Type", "text/xml")
-            web.ctx.status = result.error_code
-            return result.error
+            
+        except SwordError as e:
+            return self.manage_error(e)
 
     def DELETE(self, id):
         """

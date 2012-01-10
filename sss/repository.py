@@ -571,7 +571,7 @@ class SWORDServer(object):
 
         # does the collection directory exist?  If not, we can't do a deposit
         if not self.exists(oid):
-            return None
+            raise SwordError(status=404, empty=True)
 
         # load the statement
         s = self.dao.load_statement(collection, id)

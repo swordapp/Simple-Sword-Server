@@ -121,6 +121,16 @@ class HttpHeaders(object):
             (on_behalf_of.lower(), "MAY"),
             (metadata_relevant.lower(), "MAY")
         ],
+        "6.5.2" : [
+            (content_type.lower(), "SHOULD"),
+            (in_progress.lower(), "MAY"),
+            (on_behalf_of.lower(), "MAY")
+        ],
+        "6.5.3" : [
+            (content_type.lower(), "SHOULD"),
+            (in_progress.lower(), "MAY"),
+            (on_behalf_of.lower(), "MAY")
+        ],
         "6.6" : [
             (on_behalf_of.lower(), "MAY"),
         ],
@@ -131,6 +141,22 @@ class HttpHeaders(object):
             (packaging.lower(), "MAY"),
             (on_behalf_of.lower(), "MAY"),
             (slug.lower(), "MAY")
+        ],
+        "6.7.2" : [
+            (content_type.lower(), "MUST"),
+            (in_progress.lower(), "MAY"),
+            (on_behalf_of.lower(), "MAY")
+        ],
+        "6.7.3" : [
+            (content_type.lower(), "SHOULD"),
+            (in_progress.lower(), "MAY"),
+            (on_behalf_of.lower(), "MAY"),
+            (metadata_relevant.lower(), "MAY")
+        ],
+        "9.3" : [
+            (content_length.lower(), "SHOULD"),
+            (in_progress.lower(), "MAY"),
+            (on_behalf_of.lower(), "MAY"),
         ]
     }
     
