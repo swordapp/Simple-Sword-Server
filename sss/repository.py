@@ -854,72 +854,16 @@ class SWORDServer(object):
         else:
             return None
 
-    def sword_error(self, uri, msg=None):
-        entry = etree.Element(self.ns.SWORD + "error", nsmap=self.emap)
-        entry.set("href", uri)
-
-        author = etree.SubElement(entry, self.ns.ATOM + "author")
-        name = etree.SubElement(author, self.ns.ATOM + "name")
-        name.text = "SSS"
-
-        title = etree.SubElement(entry, self.ns.ATOM + "title")
-        title.text = "ERROR: " + uri
-
-        # Date last updated (i.e. NOW)
-        updated = etree.SubElement(entry, self.ns.ATOM + "updated")
-        updated.text = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        # Generator - identifier for this server software
-        generator = etree.SubElement(entry, self.ns.ATOM + "generator")
-        generator.set("uri", "http://www.swordapp.org/sss")
-        generator.set("version", "1.0")
-
-        # Summary field from metadata
-        summary = etree.SubElement(entry, self.ns.ATOM + "summary")
-        summary.set("type", "text")
-        text = "Error Description: " + uri
-        if msg is not None:
-            text += " ; " + msg
-        summary.text = text
-
-        # treatment
-        treatment = etree.SubElement(entry, self.ns.SWORD + "treatment")
-        treatment.text = "processing failed"
-        
-        # verbose description
-        vb = etree.SubElement(entry, self.ns.SWORD + "verboseDescription")
-        vb.text = "Verbose Description Here"
-
-        return etree.tostring(entry, pretty_print=True)
-
     def check_delete_errors(self, delete):
         # have we been asked to do a mediated delete, when this is not allowed?
         if delete.auth is not None:
             if delete.auth.obo is not None and not self.configuration.mediation:
                 raise SwordError(Errors.mediation_not_allowed)
 
-    def check_mediated_error(self, deposit):
-        # have we been asked to do a mediated deposit, when this is not allowed?
-        if deposit.auth is not None:
-            if deposit.auth.obo is not None and not self.configuration.mediation:
-                spec = SWORDSpec(self.configuration)
-                dr = DepositResponse()
-                error_doc = self.sword_error(spec.error_mediation_not_allowed_uri)
-                dr.error = error_doc
-                dr.error_code = "412 Precondition Failed"
-                return dr
-        return None
-
     def check_deposit_errors(self, deposit):
         # have we been asked for an invalid package format
         if deposit.packaging == self.configuration.error_content_package:
             raise SwordError(error_uri=Errors.content, status=415, msg="Unsupported Packaging format specified")
-            #spec = SWORDSpec(self.configuration)
-            #dr = DepositResponse()
-            #error_doc = self.sword_error(spec.error_content_uri, "Unsupported Packaging format specified")
-            #dr.error = error_doc
-            #dr.error_code = "415 Unsupported Media Type"
-            #return dr
 
         # have we been given an incompatible MD5?
         if deposit.content_md5 is not None:
@@ -928,23 +872,11 @@ class SWORDServer(object):
             digest = m.hexdigest()
             if digest != deposit.content_md5:
                 raise SwordError(error_uri=Errors.checksum_mismatch, msg="Content-MD5 header does not match file checksum")
-                #spec = SWORDSpec(self.configuration)
-                #dr = DepositResponse()
-                #error_doc = self.sword_error(spec.error_checksum_mismatch_uri, "Content-MD5 header does not match file checksum")
-                #dr.error = error_doc
-                #dr.error_code = "412 Precondition Failed"
-                #return dr
 
         # have we been asked to do a mediated deposit, when this is not allowed?
         if deposit.auth is not None:
             if deposit.auth.obo is not None and not self.configuration.mediation:
                 raise SwordError(error_uri=Errors.mediation_not_allowed)
-                #spec = SWORDSpec(self.configuration)
-                #dr = DepositResponse()
-                #error_doc = self.sword_error(spec.error_mediation_not_allowed_uri)
-                #dr.error = error_doc
-                #dr.error_code = "412 Precondition Failed"
-                #return dr
 
         return None
 
