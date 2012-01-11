@@ -1,10 +1,11 @@
 import os, hashlib, uuid, urllib
-from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException, SwordError, ServiceDocument, SDCollection
+from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException, SwordError, ServiceDocument, SDCollection, EntryDocument
 from spec import Namespaces, Errors
 from lxml import etree
 from datetime import datetime
 from zipfile import ZipFile
 from negotiator import AcceptParameters, ContentType
+from info import __version__
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
@@ -147,7 +148,7 @@ class SWORDServer(object):
         # build the namespace maps that we will use during serialisation
         # self.sdmap = {None : self.ns.APP_NS, "sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS, "dcterms" : self.ns.DC_NS}
         self.cmap = {None: self.ns.ATOM_NS}
-        self.drmap = {None: self.ns.ATOM_NS, "sword" : self.ns.SWORD_NS, "dcterms" : self.ns.DC_NS}
+        # self.drmap = {None: self.ns.ATOM_NS, "sword" : self.ns.SWORD_NS, "dcterms" : self.ns.DC_NS}
         self.smap = {"rdf" : self.ns.RDF_NS, "ore" : self.ns.ORE_NS, "sword" : self.ns.SWORD_NS}
         self.emap = {"sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS}
 
@@ -332,7 +333,7 @@ class SWORDServer(object):
         
         # finally, assemble the deposit response and return
         dr = DepositResponse()
-        dr.receipt = receipt
+        dr.receipt = receipt.serialise()
         dr.location = edit_uri
         dr.created = True
         
@@ -482,7 +483,7 @@ class SWORDServer(object):
 
         # finally, assemble the deposit response and return
         dr = DepositResponse()
-        dr.receipt = receipt
+        dr.receipt = receipt.serialise()
         dr.location = edit_uri
         dr.created = True
         return dr
@@ -535,7 +536,7 @@ class SWORDServer(object):
 
         # finally, assemble the delete response and return
         dr = DeleteResponse()
-        dr.receipt = receipt
+        dr.receipt = receipt.serialise()
         return dr
         
     def add_content(self, oid, deposit):
@@ -610,7 +611,7 @@ class SWORDServer(object):
 
         # finally, assemble the deposit response and return
         dr = DepositResponse()
-        dr.receipt = receipt
+        dr.receipt = receipt.serialise()
         dr.location = location_uri
         dr.created = True
         return dr
@@ -741,7 +742,7 @@ class SWORDServer(object):
 
         # finally, assemble the deposit response and return
         dr = DepositResponse()
-        dr.receipt = receipt
+        dr.receipt = receipt.serialise()
         # NOTE: in the spec, this is different for 6.7.2 and 6.7.3 (edit-iri and eiri respectively)
         # in this case, we have always gone for the approach of 6.7.2, and contend that the
         # spec is INCORRECT for 6.7.3 (also, section 9.3, which comes into play here
@@ -778,20 +779,9 @@ class SWORDServer(object):
         return uris
 
     def augmented_receipt(self, receipt, original_deposit_uri, derived_resource_uris=[]):
-        # Original Deposit
-        if original_deposit_uri is not None:
-            od = etree.SubElement(receipt, self.ns.ATOM + "link")
-            od.set("rel", "http://purl.org/net/sword/terms/originalDeposit")
-            od.set("href", original_deposit_uri)
-        
-        # Derived Resources
-        if derived_resource_uris is not None:
-            for uri in derived_resource_uris:
-                dr = etree.SubElement(receipt, self.ns.ATOM + "link")
-                dr.set("rel", "http://purl.org/net/sword/terms/derivedResource")
-                dr.set("href", uri)
-            
-        return etree.tostring(receipt, pretty_print=True)
+        receipt.original_deposit_uri = original_deposit_uri
+        receipt.derived_resource_uris = derived_resource_uris     
+        return receipt
 
     def deposit_receipt(self, collection, id, deposit, statement, metadata):
         """
@@ -812,10 +802,11 @@ class SWORDServer(object):
         # the Cont-URI
         cont_uri = self.um.cont_uri(collection, id)
 
-        # the EM-URI and SE-IRI
+        # the EM-URI 
         em_uri = self.um.em_uri(collection, id)
+        em_uris = [(em_uri, None), (em_uri + ".atom", "application/atom+xml;type=feed")]
 
-        # the Edit-URI
+        # the Edit-URI and SE-IRI
         edit_uri = self.um.edit_uri(collection, id)
         se_uri = edit_uri
 
@@ -825,6 +816,7 @@ class SWORDServer(object):
         # the two statement uris
         atom_statement_uri = self.um.state_uri(collection, id, "atom")
         ore_statement_uri = self.um.state_uri(collection, id, "ore")
+        state_uris = [(atom_statement_uri, "application/atom+xml;type=feed"), (ore_statement_uri, "application/rdf+xml")]
 
         # ensure that there is a metadata object, and that it is populated with enough information to build the
         # deposit receipt
@@ -837,99 +829,20 @@ class SWORDServer(object):
         if not metadata.has_key("abstract"):
             metadata["abstract"] = ["Content deposited with SWORD client"]
 
-        # Now assemble the deposit receipt
-
-        # the main entry document room
-        entry = etree.Element(self.ns.ATOM + "entry", nsmap=self.drmap)
-
-        # Title from metadata
-        title = etree.SubElement(entry, self.ns.ATOM + "title")
-        title.text = metadata['title'][0]
-
-        # Atom Entry ID
-        id = etree.SubElement(entry, self.ns.ATOM + "id")
-        id.text = drid
-
-        # Date last updated (i.e. NOW)
-        updated = etree.SubElement(entry, self.ns.ATOM + "updated")
-        updated.text = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        # Author field from metadata
-        author = etree.SubElement(entry, self.ns.ATOM + "author")
-        name = etree.SubElement(author, self.ns.ATOM + "name")
-        name.text = metadata['creator'][0]
-
-        # Summary field from metadata
-        summary = etree.SubElement(entry, self.ns.ATOM + "summary")
-        summary.set("type", "text")
-        summary.text = metadata['abstract'][0]
-
-        
-        # Generator - identifier for this server software
-        generator = etree.SubElement(entry, self.ns.ATOM + "generator")
-        generator.set("uri", "http://www.swordapp.org/sss")
-        generator.set("version", "1.0")
-
-        # now embed all the metadata as foreign markup
-        for field in metadata.keys():
-            for v in metadata[field]:
-                fdc = etree.SubElement(entry, self.ns.DC + field)
-                fdc.text = v
-
-        # verbose description
-        vd = etree.SubElement(entry, self.ns.SWORD + "verboseDescription")
-        vd.text = "SSS has done this, that and the other to process the deposit"
-
-        # treatment
-        treatment = etree.SubElement(entry, self.ns.SWORD + "treatment")
-        treatment.text = "Treatment description"
-
-        # link to splash page
-        alt = etree.SubElement(entry, self.ns.ATOM + "link")
-        alt.set("rel", "alternate")
-        alt.set("href", splash_uri)
-
-        # Media Resource Content URI (Cont-URI)
-        content = etree.SubElement(entry, self.ns.ATOM + "content")
-        content.set("type", "application/zip")
-        content.set("src", cont_uri)
-
-        # Edit-URI
-        editlink = etree.SubElement(entry, self.ns.ATOM + "link")
-        editlink.set("rel", "edit")
-        editlink.set("href", edit_uri)
-        
-        # EM-URI (Media Resource)
-        emlink = etree.SubElement(entry, self.ns.ATOM + "link")
-        emlink.set("rel", "edit-media")
-        emlink.set("href", em_uri)
-        emfeedlink = etree.SubElement(entry, self.ns.ATOM + "link")
-        emfeedlink.set("rel", "edit-media")
-        emfeedlink.set("type", "application/atom+xml;type=feed")
-        emfeedlink.set("href", em_uri + ".atom")
-
-        # SE-URI (Sword edit - same as media resource)
-        selink = etree.SubElement(entry, self.ns.ATOM + "link")
-        selink.set("rel", "http://purl.org/net/sword/terms/add")
-        selink.set("href", se_uri)
-
-        # supported packaging formats
+        packaging = []
         for disseminator in self.configuration.sword_disseminate_package:
-            sp = etree.SubElement(entry, self.ns.SWORD + "packaging")
-            sp.text = disseminator
+            packaging.append(disseminator)
 
-        # now the two statement uris
-        state1 = etree.SubElement(entry, self.ns.ATOM + "link")
-        state1.set("rel", "http://purl.org/net/sword/terms/statement")
-        state1.set("type", "application/atom+xml;type=feed")
-        state1.set("href", atom_statement_uri)
+        verbose_description = "SSS has done this, that and the other to process the deposit"
+        treatment="Treatment description"
 
-        state2 = etree.SubElement(entry, self.ns.ATOM + "link")
-        state2.set("rel", "http://purl.org/net/sword/terms/statement")
-        state2.set("type", "application/rdf+xml")
-        state2.set("href", ore_statement_uri)
+        # Now assemble the deposit receipt
+        dr = EntryDocument(atom_id=drid, alternate_uri=splash_uri, content_uri=cont_uri,
+                            edit_uri=edit_uri, se_uri=se_uri, em_uris=em_uris,
+                            packaging=packaging, state_uris=state_uris, dc_metadata=metadata,
+                            verbose_description=verbose_description, treatment=treatment)
 
-        return entry
+        return dr
 
     def get_statement(self, oid):
         accept_parameters, path = self.um.interpret_statement_path(oid)
@@ -1156,7 +1069,7 @@ class DAO(object):
         """ Store the supplied receipt document content in the object idenfied by the id in the specified collection """
         drfile = os.path.join(self.configuration.store_dir, collection, id, "sss_deposit-receipt.xml")
         if not isinstance(receipt, str):
-            receipt = etree.tostring(receipt, pretty_print=True)
+            receipt = receipt.serialise()
         self.save(drfile, receipt)
 
     def store_metadata(self, collection, id, metadata):

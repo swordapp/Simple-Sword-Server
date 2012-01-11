@@ -7,6 +7,140 @@ from info import __version__
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
 
+class EntryDocument(object):
+
+    def __init__(self, atom_id=None, alternate_uri=None, content_uri=None, edit_uri=None, se_uri=None, em_uris=[], 
+                    packaging=[], state_uris=[], updated=None, dc_metadata={}, 
+                    generator=("http://www.swordapp.org/sss", __version__), 
+                    verbose_description=None, treatment=None, original_deposit_uri=None, derived_resource_uris=[], nsmap=None):
+        self.ns = Namespaces()
+        self.drmap = {None: self.ns.ATOM_NS, "sword" : self.ns.SWORD_NS, "dcterms" : self.ns.DC_NS}
+        if nsmap is not None:
+            self.drmap = nsmap
+            
+        self.dc_metadata = dc_metadata
+        self.atom_id = atom_id if atom_id is not None else "urn:uuid:" + str(uuid.uuid4())
+        self.updated = updated if updated is not None else datetime.now()
+        self.generator = generator
+        self.verbose_description = verbose_description
+        self.treatment = treatment
+        self.alternate_uri = alternate_uri
+        self.content_uri = content_uri
+        self.edit_uri = edit_uri
+        self.em_uris = em_uris
+        self.se_uri = se_uri
+        self.packaging = packaging
+        self.state_uris = state_uris
+        self.original_deposit_uri = original_deposit_uri
+        self.derived_resource_uris = derived_resource_uris
+
+    def serialise(self):
+        # the main entry document room
+        entry = etree.Element(self.ns.ATOM + "entry", nsmap=self.drmap)
+
+        # Title from metadata
+        title = etree.SubElement(entry, self.ns.ATOM + "title")
+        title.text = self.dc_metadata.get('title', ['untitled'])[0]
+
+        # Atom Entry ID
+        id = etree.SubElement(entry, self.ns.ATOM + "id")
+        id.text = self.atom_id
+
+        # Date last updated
+        updated = etree.SubElement(entry, self.ns.ATOM + "updated")
+        updated.text = self.updated.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Author field from metadata
+        author = etree.SubElement(entry, self.ns.ATOM + "author")
+        name = etree.SubElement(author, self.ns.ATOM + "name")
+        name.text = self.dc_metadata.get('creator', ["unknown"])[0]
+
+        # Summary field from metadata
+        summary = etree.SubElement(entry, self.ns.ATOM + "summary")
+        summary.set("type", "text")
+        summary.text = self.dc_metadata.get('abstract', [""])[0]
+
+        
+        # Generator - identifier for this server software
+        gen = etree.SubElement(entry, self.ns.ATOM + "generator")
+        gen_uri, version = self.generator
+        gen.set("uri", gen_uri)
+        gen.set("version", version)
+
+        # now embed all the metadata as foreign markup
+        for field in self.dc_metadata.keys():
+            for v in self.dc_metadata[field]:
+                fdc = etree.SubElement(entry, self.ns.DC + field)
+                fdc.text = v
+
+        # verbose description
+        if self.verbose_description is not None:
+            vd = etree.SubElement(entry, self.ns.SWORD + "verboseDescription")
+            vd.text = self.verbose_description
+
+        # treatment
+        if self.treatment is not None:
+            treatment = etree.SubElement(entry, self.ns.SWORD + "treatment")
+            treatment.text = self.treatment
+
+        # link to splash page
+        if self.alternate_uri is not None:
+            alt = etree.SubElement(entry, self.ns.ATOM + "link")
+            alt.set("rel", "alternate")
+            alt.set("href", self.alternate_uri)
+
+        # Media Resource Content URI (Cont-URI)
+        if self.content_uri is not None:
+            content = etree.SubElement(entry, self.ns.ATOM + "content")
+            content.set("type", "application/zip")
+            content.set("src", self.content_uri)
+
+        # Edit-URI
+        if self.edit_uri is not None:
+            editlink = etree.SubElement(entry, self.ns.ATOM + "link")
+            editlink.set("rel", "edit")
+            editlink.set("href", self.edit_uri)
+        
+        # EM-URI (Media Resource)
+        for uri, format in self.em_uris:
+            emfeedlink = etree.SubElement(entry, self.ns.ATOM + "link")
+            emfeedlink.set("rel", "edit-media")
+            if format is not None:
+                emfeedlink.set("type", format)
+            emfeedlink.set("href", uri)
+
+        # SE-URI (Sword edit - same as media resource)
+        if self.se_uri is not None:
+            selink = etree.SubElement(entry, self.ns.ATOM + "link")
+            selink.set("rel", "http://purl.org/net/sword/terms/add")
+            selink.set("href", self.se_uri)
+
+        # supported packaging formats
+        for disseminator in self.packaging:
+            sp = etree.SubElement(entry, self.ns.SWORD + "packaging")
+            sp.text = disseminator
+
+        for uri, format in self.state_uris:
+            state1 = etree.SubElement(entry, self.ns.ATOM + "link")
+            state1.set("rel", "http://purl.org/net/sword/terms/statement")
+            state1.set("type", format)
+            state1.set("href", uri)
+
+        # Original Deposit
+        if self.original_deposit_uri is not None:
+            od = etree.SubElement(entry, self.ns.ATOM + "link")
+            od.set("rel", "http://purl.org/net/sword/terms/originalDeposit")
+            od.set("href", self.original_deposit_uri)
+        
+        # Derived Resources
+        if self.derived_resource_uris is not None:
+            for uri in self.derived_resource_uris:
+                dr = etree.SubElement(entry, self.ns.ATOM + "link")
+                dr.set("rel", "http://purl.org/net/sword/terms/derivedResource")
+                dr.set("href", uri)
+
+        return etree.tostring(entry, pretty_print=True)
+
 class SDCollection(object):
     def __init__(self, href, title, accept=["*/*"], multipart_accept=["*/*"], 
                         description=None, accept_package=[], collection_policy=None, 
