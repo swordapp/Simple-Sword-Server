@@ -1,5 +1,5 @@
 import os, hashlib, uuid, urllib
-from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException, SwordError, ServiceDocument, SDCollection, EntryDocument
+from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException, SwordError, ServiceDocument, SDCollection, EntryDocument, Authenticator, SwordServer
 from spec import Namespaces, Errors
 from lxml import etree
 from datetime import datetime
@@ -10,9 +10,9 @@ from info import __version__
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
 
-class SSSAuthenticator(object):
+class SSSAuthenticator(Authenticator):
     def __init__(self, config):
-        self.config = config
+        Authenticator.__init__(self, config)
     
     def basic_authenticate(self, username, password, obo):
         # we may have turned authentication off for development purposes
@@ -124,17 +124,13 @@ class URIManager(object):
         collection, id, fn = path.split("/", 2)
         return collection, id, fn
 
-class SWORDServer(object):
+class SSS(SwordServer):
     """
     The main SWORD Server class.  This class deals with all the CRUD requests as provided by the web.py HTTP
     handlers
     """
     def __init__(self, config, auth):
-
-        # get the configuration
-        self.configuration = config
-
-        self.auth_credentials = auth
+        SwordServer.__init__(self, config, auth)
 
         # create a DAO for us to use
         self.dao = DAO(self.configuration)

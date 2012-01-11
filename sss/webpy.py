@@ -8,12 +8,11 @@ from spec import Errors, HttpHeaders, ValidationException
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
 
-# create the global configuration
+# create the global configuration and import the implementation classes
 from config import Configuration
 config = Configuration()
-
-# FIXME: we need to separate this dependence, probably in configuration
-from repository import SWORDServer, SSSAuthenticator
+Authenticator = config.get_authenticator_implementation()
+SwordServer = config.get_server_implementation()
 
 # Whether to run using SSL.  This uses a default self-signed certificate.  Change the paths to
 # use an alternative set of keys
@@ -97,7 +96,7 @@ class SwordHttpHandler(object):
         
         ssslog.info("Authentication details: " + str(username) + ":" + str(password) + "; On Behalf Of: " + str(obo))
 
-        authenticator = SSSAuthenticator(config)
+        authenticator = Authenticator(config)
         try:
             auth = authenticator.basic_authenticate(username, password, obo)
         except AuthException as e:
@@ -281,7 +280,7 @@ class ServiceDocument(SwordHttpHandler):
             return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(config, auth)
+        ss = SwordServer(config, auth)
         sd = ss.service_document(sub_path)
         web.header("Content-Type", "text/xml")
         return sd
@@ -306,7 +305,7 @@ class Collection(SwordHttpHandler):
             return self.manage_error(e)
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
-        ss = SWORDServer(config, auth)
+        ss = SwordServer(config, auth)
         cl = sss.list_collection(collection)
         web.header("Content-Type", "text/xml")
         return cl
@@ -332,7 +331,7 @@ class Collection(SwordHttpHandler):
             
             # go ahead and process the deposit.  Anything other than a success
             # will be raised as a sword error
-            ss = SWORDServer(config, auth)
+            ss = SwordServer(config, auth)
             result = ss.deposit_new(collection, deposit)
             
             # created
@@ -368,7 +367,7 @@ class MediaResourceContent(SwordHttpHandler):
         
         # NOTE: this method is not authenticated - we imagine sharing this URL with end-users who will just want
         # to retrieve the content.  It's only for the purposes of example, anyway
-        ss = SWORDServer(config, None)
+        ss = SwordServer(config, None)
 
         # first thing we need to do is check that there is an object to return, because otherwise we may throw a
         # 406 Not Acceptable without looking first to see if there is even any media to content negotiate for
@@ -438,7 +437,7 @@ class MediaResource(MediaResourceContent):
             deposit = self.get_deposit(web, auth)
             
             # now replace the content of the container
-            ss = SWORDServer(config, auth)
+            ss = SwordServer(config, auth)
             result = ss.replace(path, deposit)
             
             # replaced
@@ -475,7 +474,7 @@ class MediaResource(MediaResourceContent):
             delete = self.get_delete(web, auth)
             
             # carry out the delete
-            ss = SWORDServer(config, auth)
+            ss = SwordServer(config, auth)
             result = ss.delete_content(path, delete)
             
             # just return, no need to give any more feedback
@@ -509,7 +508,7 @@ class MediaResource(MediaResourceContent):
             deposit = self.get_deposit(web, auth)
             
             # if we get here authentication was successful and we carry on
-            ss = SWORDServer(config, auth)
+            ss = SwordServer(config, auth)
             result = ss.add_content(path, deposit)
             
             web.header("Content-Type", "application/atom+xml;type=entry")
@@ -543,7 +542,7 @@ class Container(SwordHttpHandler):
         try:
             auth = self.http_basic_authenticate(web)
             
-            ss = SWORDServer(config, auth)
+            ss = SwordServer(config, auth)
             
             # first thing we need to do is check that there is an object to return, because otherwise we may throw a
             # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
@@ -594,7 +593,7 @@ class Container(SwordHttpHandler):
             # get the deposit object
             deposit = self.get_deposit(web, auth)
             
-            ss = SWORDServer(config, auth)
+            ss = SwordServer(config, auth)
             result = ss.replace(path, deposit)
             
             web.header("Location", result.location)
@@ -636,7 +635,7 @@ class Container(SwordHttpHandler):
             
             deposit = self.get_deposit(web, auth)
             
-            ss = SWORDServer(config, auth)
+            ss = SwordServer(config, auth)
             result = ss.deposit_existing(path, deposit)
             
             # NOTE: spec says 201 Created for multipart and 200 Ok for metadata only
@@ -679,7 +678,7 @@ class Container(SwordHttpHandler):
             delete = self.get_delete(web, auth)
            
             # do the delete
-            ss = SWORDServer(config, auth)
+            ss = SwordServer(config, auth)
             result = ss.delete_container(path, delete)
             
             # no need to return any content
@@ -697,7 +696,7 @@ class StatementHandler(SwordHttpHandler):
             # authenticate
             auth = self.http_basic_authenticate(web)
             
-            ss = SWORDServer(config, auth)
+            ss = SwordServer(config, auth)
             
             # first thing we need to do is check that there is an object to return, because otherwise we may throw a
             # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
@@ -722,7 +721,7 @@ class StatementHandler(SwordHttpHandler):
 class Aggregation(SwordHttpHandler):
     def GET(self, path):
         # in this case we just redirect back to the Edit-URI with a 303 See Other
-        ss = SWORDServer(config, None)
+        ss = SwordServer(config, None)
         edit_uri = ss.get_edit_uri()
         web.ctx.status = "303 See Other"
         web.header("Content-Location", edit_uri)
@@ -749,7 +748,7 @@ class Part(SwordHttpHandler):
     Class to provide access to the component parts of the object on the server
     """
     def GET(self, path):
-        ss = SWORDServer(config, None)
+        ss = SwordServer(config, None)
         
         # if we did, we can get hold of the media resource
         fh = ss.get_part(path)

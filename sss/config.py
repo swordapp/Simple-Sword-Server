@@ -116,8 +116,10 @@ DEFAULT_CONFIG = """
     ],
     "container_format_default" : {
         "content_type" : "application/atom+xml;type=entry"
-    }
+    },
     
+    "sword_server" : "sss.repository.SSS",
+    "authenticator" : "sss.repository.SSSAuthenticator"
 }
 """
         
@@ -136,6 +138,12 @@ class Configuration(object):
         # at the moment they are just set in the configuration as strings, and
         # it's a bit of a faff to include the code that was there before into
         # the json string.  How much does this matter?
+    
+    def get_server_implementation(self):
+        return self._get_class(self.sword_server)
+    
+    def get_authenticator_implementation(self):
+        return self._get_class(self.authenticator)
     
     def get_container_formats(self):
         default_params = self._get_accept_params(self.container_format_default)
