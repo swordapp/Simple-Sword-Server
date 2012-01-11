@@ -7,8 +7,106 @@ from info import __version__
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
 
-# FIXME: SWORDSpec has a lot of webpy stuff in it; needs to be cleaned and
-# divided
+class SDCollection(object):
+    def __init__(self, href, title, accept=["*/*"], multipart_accept=["*/*"], 
+                        description=None, accept_package=[], collection_policy=None, 
+                        mediation=False, treatment=None, sub_service=[]):
+        self.href = href
+        self.title = title
+        self.description = description
+        self.accept = accept
+        self.multipart_accept = multipart_accept
+        self.accept_package = accept_package
+        self.collection_policy = collection_policy
+        self.mediation = mediation
+        self.treatment = treatment
+        self.sub_service = sub_service
+        
+
+class ServiceDocument(object):
+
+    def __init__(self, version="2.0", max_upload_size=0, nsmap=None):
+        # set up the namespace declarations that will be used
+        self.ns = Namespaces()
+        self.sdmap = {None : self.ns.APP_NS, "sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS, "dcterms" : self.ns.DC_NS}
+        if nsmap is not None:
+            self.sdmap = nsmap
+        
+        self.version = version
+        self.max_upload_size = max_upload_size
+        
+        self.workspaces = {}
+        
+    def add_workspace(self, name, collections):
+        self.workspaces[name] = collections
+    
+    def serialise(self):
+        # Start by creating the root of the service document, supplying to it the namespace map in this first instance
+        service = etree.Element(self.ns.APP + "service", nsmap=self.sdmap)
+
+        # version element
+        version = etree.SubElement(service, self.ns.SWORD + "version")
+        version.text = self.version
+
+        # max upload size
+        if self.max_upload_size != 0:
+            mus = etree.SubElement(service, self.ns.SWORD + "maxUploadSize")
+            mus.text = str(self.max_upload_size)
+
+        # workspace element
+        for ws in self.workspaces.keys():
+            workspace = etree.SubElement(service, self.ns.APP + "workspace")
+
+            # title element
+            title = etree.SubElement(workspace, self.ns.ATOM + "title")
+            title.text = ws
+
+            # now for each collection create a collection element
+            for col in self.workspaces[ws]:
+                collection = etree.SubElement(workspace, self.ns.APP + "collection")
+                collection.set("href", col.href)
+
+                # collection title
+                ctitle = etree.SubElement(collection, self.ns.ATOM + "title")
+                ctitle.text = col.title
+
+                for acc in col.accept:
+                    accepts = etree.SubElement(collection, self.ns.APP + "accept")
+                    accepts.text = acc
+                    
+                for acc in col.multipart_accept:
+                    mraccepts = etree.SubElement(collection, self.ns.APP + "accept")
+                    mraccepts.text = acc
+                    mraccepts.set("alternate", "multipart-related")
+
+                # SWORD collection policy
+                collectionPolicy = etree.SubElement(collection, self.ns.SWORD + "collectionPolicy")
+                collectionPolicy.text = col.collection_policy
+
+                # Collection abstract
+                abstract = etree.SubElement(collection, self.ns.DC + "abstract")
+                abstract.text = col.description
+
+                # support for mediation
+                mediation = etree.SubElement(collection, self.ns.SWORD + "mediation")
+                mediation.text = "true" if col.mediation else "false"
+
+                # treatment
+                treatment = etree.SubElement(collection, self.ns.SWORD + "treatment")
+                treatment.text = col.treatment
+
+                # SWORD packaging formats accepted
+                for format in col.accept_package:
+                    acceptPackaging = etree.SubElement(collection, self.ns.SWORD + "acceptPackaging")
+                    acceptPackaging.text = format
+
+                # provide a sub service element if appropriate
+                for sub in col.sub_service:
+                    subservice = etree.SubElement(collection, self.ns.SWORD + "service")
+                    subservice.text = sub
+
+        # pretty print and return
+        return etree.tostring(service, pretty_print=True)
 
 
 # REQUEST/RESPONSE CLASSES

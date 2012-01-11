@@ -1,5 +1,5 @@
 import os, hashlib, uuid, urllib
-from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException, SwordError
+from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException, SwordError, ServiceDocument, SDCollection
 from spec import Namespaces, Errors
 from lxml import etree
 from datetime import datetime
@@ -145,7 +145,7 @@ class SWORDServer(object):
         self.um = URIManager(self.configuration)
 
         # build the namespace maps that we will use during serialisation
-        self.sdmap = {None : self.ns.APP_NS, "sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS, "dcterms" : self.ns.DC_NS}
+        # self.sdmap = {None : self.ns.APP_NS, "sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS, "dcterms" : self.ns.DC_NS}
         self.cmap = {None: self.ns.ATOM_NS}
         self.drmap = {None: self.ns.ATOM_NS, "sword" : self.ns.SWORD_NS, "dcterms" : self.ns.DC_NS}
         self.smap = {"rdf" : self.ns.RDF_NS, "ore" : self.ns.ORE_NS, "sword" : self.ns.SWORD_NS}
@@ -176,81 +176,62 @@ class SWORDServer(object):
         """
         use_sub = self.configuration.use_sub if path is None else False
         
-        # Start by creating the root of the service document, supplying to it the namespace map in this first instance
-        service = etree.Element(self.ns.APP + "service", nsmap=self.sdmap)
-
-        # version element
-        version = etree.SubElement(service, self.ns.SWORD + "version")
-        version.text = self.configuration.sword_version
-
-        # max upload size
-        mus = etree.SubElement(service, self.ns.SWORD + "maxUploadSize")
-        mus.text = str(self.configuration.max_upload_size)
-
-        # workspace element
-        workspace = etree.SubElement(service, self.ns.APP + "workspace")
-
-        # title element
-        title = etree.SubElement(workspace, self.ns.ATOM + "title")
-        title.text = "Main Site"
-
-        # now for each collection create a collection element
-        for col in self.dao.get_collection_names():
-            collection = etree.SubElement(workspace, self.ns.APP + "collection")
-            collection.set("href", self.um.col_uri(col))
-
-            # collection title
-            ctitle = etree.SubElement(collection, self.ns.ATOM + "title")
-            ctitle.text = "Collection " + col
-
+        service = ServiceDocument(version=self.configuration.sword_version,
+                                    max_upload_size=self.configuration.max_upload_size)
+        
+        # now for each collection create an sdcollection
+        collections = []
+        for col_name in self.dao.get_collection_names():
+            href = self.um.col_uri(col_name)
+            title = "Collection " + col_name
+            policy = "Collection Policy"
+            abstract = "Collection Description"
+            mediation = self.configuration.mediation
+            treatment = "Treatment description"
+            
+            # content types accepted
+            accept = []
+            multipart_accept = []
             if not self.configuration.accept_nothing:
-                # accepts declaration
                 if self.configuration.app_accept is not None:
                     for acc in self.configuration.app_accept:
-                        accepts = etree.SubElement(collection, self.ns.APP + "accept")
-                        accepts.text = acc
+                        accept.append(acc)
                 
                 if self.configuration.multipart_accept is not None:
                     for acc in self.configuration.multipart_accept:
-                        mraccepts = etree.SubElement(collection, self.ns.APP + "accept")
-                        mraccepts.text = acc
-                        mraccepts.set("alternate", "multipart-related")
-            else:
-                accepts = etree.SubElement(collection, self.ns.APP + "accept")
-
-            # SWORD collection policy
-            collectionPolicy = etree.SubElement(collection, self.ns.SWORD + "collectionPolicy")
-            collectionPolicy.text = "Collection Policy"
-
-            # Collection abstract
-            abstract = etree.SubElement(collection, self.ns.DC + "abstract")
-            abstract.text = "Collection Description"
-
-            # support for mediation
-            mediation = etree.SubElement(collection, self.ns.SWORD + "mediation")
-            mediation.text = "true" if self.configuration.mediation else "false"
-
-            # treatment
-            treatment = etree.SubElement(collection, self.ns.SWORD + "treatment")
-            treatment.text = "Treatment description"
-
+                        multipart_accept.append(acc)
+                        
             # SWORD packaging formats accepted
+            accept_package = []
             for format in self.configuration.sword_accept_package:
-                acceptPackaging = etree.SubElement(collection, self.ns.SWORD + "acceptPackaging")
-                acceptPackaging.text = format
+                accept_package.append(format)
 
             # provide a sub service element if appropriate
+            subservice = []
             if use_sub:
-                subservice = etree.SubElement(collection, self.ns.SWORD + "service")
-                subservice.text = self.um.sd_uri(True)
+                subservice.append(self.um.sd_uri(True))
+            
+            col = SDCollection(href=href, title=title, accept=accept, multipart_accept=multipart_accept,
+                                description=abstract, accept_package=accept_package, 
+                                collection_policy=policy, mediation=mediation, treatment=treatment,
+                                sub_service=subservice)
+                                
+            collections.append(col)
+        
+        service.add_workspace("Main Site", collections)
 
-        # pretty print and return
-        return etree.tostring(service, pretty_print=True)
+        # serialise and return
+        return service.serialise()
 
     def list_collection(self, id):
         """
         List the contents of a collection identified by the supplied id
         """
+        # FIXME: would be good to have this in the generic implementation (section
+        # 6.2), but that's a future task; for the time being this remains a
+        # repository specific piece of code, and a generic implementation will
+        # be done later
+        
         # create an empty feed element for the collection
         feed = etree.Element(self.ns.ATOM + "feed", nsmap=self.cmap)
 
