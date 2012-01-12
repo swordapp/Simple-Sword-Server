@@ -1,0 +1,10 @@
+middleware.py
+
+You need to comment out the error handling code in middleware.py otherwise
+it will bork the sword error messages, and authentication with http basic will
+become impossible
+
+
+routing.py
+
+... document routes here ...
