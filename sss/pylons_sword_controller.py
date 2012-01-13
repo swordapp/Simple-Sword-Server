@@ -277,7 +277,7 @@ class SwordController(WSGIController):
         if http_method == "GET":
             return self._GET_media_resource(path)
         elif http_method == "PUT":
-            return self._PUT_media_resource
+            return self._PUT_media_resource(path)
         elif http_method == "POST":
             return self._POST_media_resource(path)
         elif http_method == "DELETE":
@@ -286,7 +286,20 @@ class SwordController(WSGIController):
             abort(405, "Method Not Allowed")
             return
             
-    def container(self, path=None): pass
+    def container(self, path=None):
+        http_method = request.environ['REQUEST_METHOD']
+        if http_method == "GET":
+            return self._GET_container(path)
+        elif http_method == "PUT":
+            return self._PUT_container(path)
+        elif http_method == "POST":
+            return self._POST_container(path)
+        elif http_method == "DELETE":
+            return self._DELETE_container(path)
+        else:
+            abort(405, "Method Not Allowed")
+            return
+    
     def statement(self, path=None): pass
     
     def aggregation(self, path=None): pass
@@ -427,5 +440,88 @@ class SwordController(WSGIController):
             response.status = "200 OK"
             return f.read()
 
+    def _PUT_media_resource(self, path=None):
+        """
+        PUT a new package onto the object identified by the supplied id
+        Args:
+        - id:   the ID of the media resource as specified in the URL
+        Returns a Deposit Receipt
+        """
+        ssslog.debug("PUT on Media Resource (replace); Incoming HTTP headers: " + str(request.environ))
+        
+        # find out if update is allowed
+        if not config.allow_update:
+            error = SwordError(error_uri=Errors.method_not_allowed, msg="Update operations not currently permitted")
+            return self.manage_error(error)
+
+        # authenticate
+        try:
+            auth = self.http_basic_authenticate()
+            
+            # check the validity of the request (note that multipart requests 
+            # and atom-only are not permitted in this method)
+            self.validate_deposit_request(None, "6.5.1", None, allow_multipart=False)
+            
+            # get a deposit object.  The PUT operation only supports a single binary deposit, not an Atom Multipart one
+            # so if the deposit object has an atom part we should return an error
+            deposit = self.get_deposit(auth)
+            
+            # now replace the content of the container
+            ss = SwordServer(config, auth)
+            result = ss.replace(path, deposit)
+            
+            # replaced
+            ssslog.info("Content replaced")
+            response.status_int = 204
+            response.status = "204 No Content" # notice that this is different from the POST as per AtomPub
+            return
+            
+        except SwordError as e:
+            return self.manage_error(e)
     
+    
+    def _GET_container(self, path=None):
+        """
+        GET a representation of the container in the appropriate (content negotiated) format as identified by
+        the supplied id
+        Args:
+        - id:   The ID of the container as supplied in the request URL
+        Returns a representation of the container: SSS will return either the Atom Entry identical to the one supplied
+        as a deposit receipt or the pure RDF/XML Statement depending on the Accept header
+        """
+        ssslog.debug("GET on Container (retrieve deposit receipt or statement); Incoming HTTP headers: " + str(request.environ))
+        
+        # authenticate
+        try:
+            auth = self.http_basic_authenticate()
+            
+            ss = SwordServer(config, auth)
+            
+            # first thing we need to do is check that there is an object to return, because otherwise we may throw a
+            # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
+            # which would be weird from a client perspective
+            if not ss.container_exists(path):
+                abort(404)
+                return
+                
+            # get the content negotiation headers
+            accept_header = request.environ.get("HTTP_ACCEPT")
+            accept_packaging_header = request.environ.get("HTTP_ACCEPT_PACKAGING")
+            
+            # do the negotiation
+            default_accept_parameters, acceptable = config.get_container_formats()
+            cn = ContentNegotiator(default_accept_parameters, acceptable)
+            accept_parameters = cn.negotiate(accept=accept_header)
+            ssslog.info("Container requested in format: " + str(accept_parameters))
+            
+            # did we successfully negotiate a content type?
+            if accept_parameters is None:
+                raise SwordError(error_uri=Error.content, status=415, empty=True)
+            
+            # now actually get hold of the representation of the container and send it to the client
+            cont = ss.get_container(path, accept_parameters)
+            return cont
+            
+        except SwordError as e:
+            return self.manage_error(e)
     
