@@ -242,7 +242,7 @@ class SwordController(WSGIController):
         d = DeleteRequest()
         
         # map the webpy headers to something more standard
-        mapped_headers = self._map_webpy_headers(web.ctx.environ)
+        mapped_headers = self._map_webpy_headers(request.environ)
         
         h = HttpHeaders()
         d.set_from_headers(h.get_sword_headers(mapped_headers))
@@ -272,7 +272,20 @@ class SwordController(WSGIController):
             abort(405, "Method Not Allowed")
             return
     
-    def media_resource(self, path=None): pass
+    def media_resource(self, path=None):
+        http_method = request.environ['REQUEST_METHOD']
+        if http_method == "GET":
+            return self._GET_media_resource(path)
+        elif http_method == "PUT":
+            return self._PUT_media_resource
+        elif http_method == "POST":
+            return self._POST_media_resource(path)
+        elif http_method == "DELETE":
+            return self._DELETE_media_resource(path)
+        else:
+            abort(405, "Method Not Allowed")
+            return
+            
     def container(self, path=None): pass
     def statement(self, path=None): pass
     
@@ -283,7 +296,7 @@ class SwordController(WSGIController):
     # SWORD Protocol Operations
     ###########################
     
-    def _GET_service_document(self, sub_path=None):
+    def _GET_service_document(self, path=None):
         """ 
         GET the service document - returns an XML document 
         - sub_path - the path provided for the sub-service document
@@ -298,7 +311,7 @@ class SwordController(WSGIController):
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SwordServer(config, auth)
-        sd = ss.service_document(sub_path)
+        sd = ss.service_document(path)
         response.content_type = "text/xml"
         return sd
     
@@ -362,6 +375,57 @@ class SwordController(WSGIController):
             
         except SwordError as e:
             return self.manage_error(e)
+            
+    def _GET_media_resource(self, path=None):
+        """
+        GET the media resource content in the requested format (web request will include content negotiation via
+        Accept header)
+        Args:
+        - id:   the ID of the object in the store
+        Returns the content in the requested format
+        """
+        ssslog.debug("GET on MediaResource; Incoming HTTP headers: " + str(request.environ))
+        
+        # NOTE: this method is not authenticated - we imagine sharing this URL with end-users who will just want
+        # to retrieve the content.
+        ss = SwordServer(config, None)
+
+        # first thing we need to do is check that there is an object to return, because otherwise we may throw a
+        # 406 Not Acceptable without looking first to see if there is even any media to content negotiate for
+        # which would be weird from a client perspective
+        if not ss.media_resource_exists(path):
+            abort(404)
+            return
+        
+        # get the content negotiation headers
+        accept_header = request.environ.get("HTTP_ACCEPT")
+        accept_packaging_header = request.environ.get("HTTP_ACCEPT_PACKAGING")
+        
+        # do the negotiation
+        default_accept_parameters, acceptable = config.get_media_resource_formats()
+        cn = ContentNegotiator(default_accept_parameters, acceptable)
+        accept_parameters = cn.negotiate(accept=accept_header, accept_packaging=accept_packaging_header)
+        
+        ssslog.info("Conneg format: " + str(accept_parameters))
+
+        try:
+            # can get hold of the media resource
+            media_resource = ss.get_media_resource(path, accept_parameters)
+        except SwordError as e:
+            return self.manage_error(e)
+
+        # either send the client a redirect, or stream the content out
+        if media_resource.redirect:
+            redirect_to(media_resource.url, _code=302) # FOUND (not SEE OTHER)
+            return
+        else:
+            response.content_type = media_resource.content_type
+            if media_resource.packaging is not None:
+                response.headers["Packaging"] = media_resource.packaging
+            f = open(media_resource.filepath, "r")
+            response.status_int = 200
+            response.status = "200 OK"
+            return f.read()
 
     
     
