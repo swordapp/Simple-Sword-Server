@@ -166,7 +166,7 @@ class SwordHttpHandler(object):
             is_entry = False
             content_type = mapped_headers.get("CONTENT-TYPE")
             if content_type is not None and content_type.startswith("application/atom+xml"):
-                ssslog.info("Validating a atom-only deposit")
+                ssslog.info("Validating an atom-only deposit")
                 is_entry = True
             
             if not is_entry and not is_multipart and not is_empty:

@@ -108,6 +108,12 @@ class SwordController(WSGIController):
         # run the validation
         try:
             # there must be both an "atom" and "payload" input or data in web.data()
+            
+            # FIXME: deposit does NOT support multipart
+            if request.environ["CONTENT_TYPE"].startswith("multipart"):
+                raise SwordError(error_uri=Errors.method_not_allowed, msg="Pylons implementation does not currently support multipart/related requests")
+            """
+            # leave this out until we can get multipart sorted (at a later date)
             webin = request.POST
             if len(webin) != 2 and len(webin) > 0:
                 raise ValidationException("Multipart request does not contain exactly 2 parts")
@@ -115,28 +121,30 @@ class SwordController(WSGIController):
                 raise ValidationException("Multipart request must contain Content-Dispositions with names 'atom' and 'payload'")
             if len(webin) > 0 and not allow_multipart:
                 raise ValidationException("Multipart request not permitted in this context")
+            """
             
             # if we get to here then we have a valid multipart or no multipart
             is_multipart = False
             is_empty = False
-            if len(webin) != 2: # if it is not multipart
+            #if len(webin) != 2: # if it is not multipart
                 # FIXME: this is reading everything in, and should be re-evaluated for performance/scalability
-                data = request.environ['wsgi.input'].read(int(request.environ['CONTENT_LENGTH']))
-                
-                if data is None or data.strip() == "": # FIXME: this does not look safe to scale
-                    if allow_empty:
-                        ssslog.info("Validating an empty deposit (could be a control operation)")
-                        is_empty = True
-                    else:
-                        raise ValidationException("No content sent to the server")
-            else:
-                ssslog.info("Validating a multipart deposit")
-                is_multipart = True
+            wsgi_input = request.environ['wsgi.input']
+            wsgi_input.seek(0, 0)
+            
+            if wsgi_input is None or wsgi_input.read().strip() == "": # FIXME: this IS NOT safe to scale
+                if allow_empty:
+                    ssslog.info("Validating an empty deposit (could be a control operation)")
+                    is_empty = True
+                else:
+                    raise ValidationException("No content sent to the server")
+            #else:
+            #    ssslog.info("Validating a multipart deposit")
+            #    is_multipart = True
             
             is_entry = False
             content_type = mapped_headers.get("CONTENT-TYPE")
             if content_type is not None and content_type.startswith("application/atom+xml"):
-                ssslog.info("Validating a atom-only deposit")
+                ssslog.info("Validating an atom-only deposit")
                 is_entry = True
             
             if not is_entry and not is_multipart and not is_empty:
@@ -180,34 +188,41 @@ class SwordController(WSGIController):
                             msg="Max upload size is " + config.max_upload_size + 
                             "; incoming content length was " + str(cl))
         
+        # FIXME: this method does NOT support multipart
         # find out if this is a multipart or not
         is_multipart = False
         
         # FIXME: these headers aren't populated yet, because the webpy api doesn't
         # appear to have a mechanism to retrieve them.  urgh.
-        entry_part_headers = {}
-        media_part_headers = {}
-        webin = request.POST
-        if len(webin) == 2:
-            ssslog.info("Received multipart deposit request")
-            d.atom = webin['atom']
+        #entry_part_headers = {}
+        #media_part_headers = {}
+        #webin = request.POST
+        #ssslog.debug(webin)
+        #if len(webin) == 2:
+        #    ssslog.info("Received multipart deposit request")
+        #    d.atom = webin['atom']
             # FIXME: this reads the payload into memory, we need to sort that out
             # read the zip file from the base64 encoded string
-            d.content = base64.decodestring(webin['payload'])
-            is_multipart = True
-        elif not empty_request:
-            # if this wasn't a multipart, and isn't an empty request, then the data is in web.data().  This could be a binary deposit or
-            # an atom entry deposit - reply on the passed/determined argument to determine which
+        #    d.content = base64.decodestring(webin['payload'])
+        #    is_multipart = True
+        #elif not empty_request:
+        if not empty_request:
+            # for this section, we have to reset the file pointer in the wsgi.input
+            # part of the request back to the start, since it may have 
+            # already been read once
+            wsgi_input = request.environ['wsgi.input']
+            wsgi_input.seek(0, 0)
+            
+            # if this wasn't a multipart, and isn't an empty request, then read the 
+            # data from the wsgi input
             if atom_only:
                 ssslog.info("Received Entry deposit request")
                 # FIXME: this is reading everything in, and should be re-evaluated for performance/scalability
-                data = request.environ['wsgi.input'].read(int(request.environ['CONTENT_LENGTH']))
-                d.atom = data
+                d.atom = wsgi_input.read()
             else:
                 ssslog.info("Received Binary deposit request")
                 # FIXME: this is reading everything in, and should be re-evaluated for performance/scalability
-                data = request.environ['wsgi.input'].read(int(request.environ['CONTENT_LENGTH']))
-                d.content = data
+                d.content = wsgi_input.read()
         
         if is_multipart:
             d.filename = h.extract_filename(media_part_headers)
@@ -309,6 +324,44 @@ class SwordController(WSGIController):
         return cl
         
     def _POST_collection(self, path=None):
-        pass
+        """
+        POST either an Atom Multipart request, or a simple package into the specified collection
+        Args:
+        - collection:   The ID of the collection as specified in the requested URL
+        Returns a Deposit Receipt
+        """
+        ssslog.debug("POST to Collection (create new item); Incoming HTTP headers: " + str(request.environ))
+        
+        try:
+            # authenticate
+            auth = self.http_basic_authenticate()
+            
+            # check the validity of the request
+            self.validate_deposit_request("6.3.3", "6.3.1", "6.3.2")
+        
+            # take the HTTP request and extract a Deposit object from it    
+            deposit = self.get_deposit(auth)
+            
+            # go ahead and process the deposit.  Anything other than a success
+            # will be raised as a sword error
+            ss = SwordServer(config, auth)
+            result = ss.deposit_new(path, deposit)
+            
+            # created
+            ssslog.info("Item created")
+            response.content_type = "application/atom+xml;type=entry"
+            response.headers["Location"] = result.location
+            response.status_int = 201
+            response.status = "201 Created"
+            if config.return_deposit_receipt:
+                ssslog.info("Returning deposit receipt")
+                return result.receipt
+            else:
+                ssslog.info("Omitting deposit receipt")
+                return
+            
+        except SwordError as e:
+            return self.manage_error(e)
+
     
     

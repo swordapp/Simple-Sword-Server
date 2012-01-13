@@ -1,3 +1,15 @@
+Controller:
+
+To use the native pylons controller in your pylons app, you need to set up
+a controller (which we assume to be called "sword.py" for the duration of this
+document, with the content:
+
+from sss.pylons_sword_controller import SwordController
+__controller__ = "SwordController"
+
+That is all.
+
+
 middleware.py
 
 You need to comment out the error handling code in middleware.py otherwise
