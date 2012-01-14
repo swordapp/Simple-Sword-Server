@@ -18,15 +18,13 @@ class HomePage(WebPage):
     def __init__(self, config):
         self.config = config
         self.dao = DAO(self.config)
-        self.um = URIManager()
+        self.um = URIManager(config)
         
     def get_home_page(self):
-        cfg = self.config
-        
         frag = "<h1>Simple SWORDv2 Server</h1>"
-        frag += "<p><strong>Service Document (SD-IRI)</strong>: <a href=\"" + cfg.base_url + "sd-uri\">" + cfg.base_url + "sd-uri</a></p>"
-        frag += "<p>If prompted, use the username <strong>" + cfg.user + "</strong> and the password <strong>" + cfg.password + "</strong></p>"
-        frag += "<p>The On-Behalf-Of user to use is <strong>" + cfg.obo + "</strong></p>"
+        frag += "<p><strong>Service Document (SD-IRI)</strong>: <a href=\"" + self.config.base_url + "sd-uri\">" + self.config.base_url + "sd-uri</a></p>"
+        frag += "<p>If prompted, use the username <strong>" + self.config.user + "</strong> and the password <strong>" + self.config.password + "</strong></p>"
+        frag += "<p>The On-Behalf-Of user to use is <strong>" + self.config.obo + "</strong></p>"
         
         # list the collections
         frag += "<h2>Collections</h2><ul>"
@@ -34,14 +32,15 @@ class HomePage(WebPage):
             frag += "<li><a href=\"" + self.um.html_url(col) + "\">" + col + "</a></li>"
         frag += "</ul>"
         
-        head_frag = "<link rel=\"http://purl.org/net/sword/discovery/service-document\" href=\"" + cfg.base_url + "sd-uri\"/>"
+        head_frag = "<link rel=\"http://purl.org/net/sword/discovery/service-document\" href=\"" + self.config.base_url + "sd-uri\"/>"
         
         return self._wrap_html("Simple SWORDv2 Server", frag, head_frag)
 
 class CollectionPage(WebPage):
-    def __init__(self):
-        self.dao = DAO()
-        self.um = URIManager()
+    def __init__(self, config):
+        self.config = config
+        self.dao = DAO(config)
+        self.um = URIManager(config)
         
     def get_collection_page(self, id):
         frag = "<h1>Collection: " + id + "</h1>"
@@ -59,9 +58,10 @@ class CollectionPage(WebPage):
         return self._wrap_html("Collection: " + id, frag, head_frag)
 
 class ItemPage(WebPage):
-    def __init__(self):
-        self.dao = DAO()
-        self.um = URIManager()
+    def __init__(self, config):
+        self.config = config
+        self.dao = DAO(config)
+        self.um = URIManager(config)
     
     def get_item_page(self, oid):
         collection, id = self.um.interpret_oid(oid)

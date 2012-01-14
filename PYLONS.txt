@@ -19,6 +19,9 @@ become impossible
 
 routing.py
 
+In order to make the routes work properly, you need to remove the public/index.html
+to make the "/" route work properly
+
 """Routes configuration
 
 The more specific and detailed routes should be defined first so they

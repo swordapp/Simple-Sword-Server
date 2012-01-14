@@ -736,10 +736,10 @@ class WebUI(SwordHttpHandler):
     def GET(self, path=None):
         if path is not None:
             if path.find("/") >= 0:
-                ip = ItemPage()
+                ip = ItemPage(config)
                 return ip.get_item_page(path)
             else:
-                cp = CollectionPage()
+                cp = CollectionPage(config)
                 return cp.get_collection_page(path)
         else:
             hp = HomePage(config)

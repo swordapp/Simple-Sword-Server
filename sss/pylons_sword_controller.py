@@ -3,10 +3,11 @@ from pylons.controllers.util import abort, redirect_to
 from pylons.controllers import WSGIController
 from pylons.templating import render_mako as render
 
-import re, base64, urllib, uuid
+import re, base64, urllib, uuid, inspect
 from core import Auth, SWORDSpec, SwordError, AuthException, DepositRequest, DeleteRequest
 from negotiator import ContentNegotiator, AcceptParameters, ContentType
 from spec import Errors, HttpHeaders, ValidationException
+from webui import HomePage, CollectionPage, ItemPage
 
 import logging
 ssslog = logging.getLogger(__name__)
@@ -263,7 +264,7 @@ class SwordController(WSGIController):
         if http_method == "GET":
             return self._GET_service_document(sub_path)
         else:
-            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + __name__)
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + inspect.stack()[0][3])
             abort(405, "Method Not Allowed")
             return
     
@@ -274,7 +275,7 @@ class SwordController(WSGIController):
         elif http_method == "POST":
             return self._POST_collection(path)
         else:
-            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + __name__)
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + inspect.stack()[0][3])
             abort(405, "Method Not Allowed")
             return
     
@@ -289,7 +290,7 @@ class SwordController(WSGIController):
         elif http_method == "DELETE":
             return self._DELETE_media_resource(path)
         else:
-            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + __name__)
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + inspect.stack()[0][3])
             abort(405, "Method Not Allowed")
             return
             
@@ -304,7 +305,7 @@ class SwordController(WSGIController):
         elif http_method == "DELETE":
             return self._DELETE_container(path)
         else:
-            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + __name__)
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + inspect.stack()[0][3])
             abort(405, "Method Not Allowed")
             return
     
@@ -313,13 +314,39 @@ class SwordController(WSGIController):
         if http_method == "GET":
             return self._GET_statement(path)
         else:
-            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + __name__)
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + inspect.stack()[0][3])
             abort(405, "Method Not Allowed")
             return
     
-    def aggregation(self, path=None): pass
-    def part(self, path=None): pass
-    def webui(self, path=None): pass
+    def aggregation(self, path=None): 
+        http_method = request.environ['REQUEST_METHOD']
+        if http_method == "GET":
+            return self._GET_aggregation(path)
+        else:
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + inspect.stack()[0][3])
+            abort(405, "Method Not Allowed")
+            return
+    
+    def webui(self, path=None):
+        http_method = request.environ['REQUEST_METHOD']
+        if http_method == "GET":
+            return self._GET_webui(path)
+        else:
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + inspect.stack()[0][3])
+            abort(405, "Method Not Allowed")
+            return
+    
+       
+    def part(self, path=None):
+        http_method = request.environ['REQUEST_METHOD']
+        if http_method == "GET":
+            return self._GET_part(path)
+        elif http_method == "PUT":
+            return self._PUT_part(path)
+        else:
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + inspect.stack()[0][3])
+            abort(405, "Method Not Allowed")
+            return
     
     # SWORD Protocol Operations
     ###########################
@@ -341,7 +368,7 @@ class SwordController(WSGIController):
         ss = SwordServer(config, auth)
         sd = ss.service_document(path)
         response.content_type = "text/xml"
-        ssslog.info("Returning " + response.status + " from request on " + __name__)
+        ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
         return sd
     
     def _GET_collection(self, path=None):
@@ -363,7 +390,7 @@ class SwordController(WSGIController):
         ss = SwordServer(config, auth)
         cl = ss.list_collection(path)
         response.content_type = "text/xml"
-        ssslog.info("Returning " + response.status + " from request on " + __name__)
+        ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
         return cl
         
     def _POST_collection(self, path=None):
@@ -398,11 +425,11 @@ class SwordController(WSGIController):
             response.status = "201 Created"
             if config.return_deposit_receipt:
                 ssslog.info("Returning deposit receipt")
-                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
                 return result.receipt
             else:
                 ssslog.info("Omitting deposit receipt")
-                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
                 return
             
         except SwordError as e:
@@ -456,7 +483,7 @@ class SwordController(WSGIController):
             f = open(media_resource.filepath, "r")
             response.status_int = 200
             response.status = "200 OK"
-            ssslog.info("Returning " + response.status + " from request on " + __name__)
+            ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
             return f.read()
 
     def _PUT_media_resource(self, path=None):
@@ -493,7 +520,7 @@ class SwordController(WSGIController):
             ssslog.info("Content replaced")
             response.status_int = 204
             response.status = "204 No Content" # notice that this is different from the POST as per AtomPub
-            ssslog.info("Returning " + response.status + " from request on " + __name__)
+            ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
             return
             
         except SwordError as e:
@@ -532,11 +559,11 @@ class SwordController(WSGIController):
             response.status = "201 Created"
             if config.return_deposit_receipt:
                 ssslog.info("Returning Receipt")
-                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
                 return result.receipt
             else:
                 ssslog.info("Omitting Receipt")
-                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
                 return
             
         except SwordError as e:
@@ -574,7 +601,7 @@ class SwordController(WSGIController):
             # just return, no need to give any more feedback
             response.status_int = 204
             response.status = "204 No Content" # No Content
-            ssslog.info("Returning " + response.status + " from request on " + __name__)
+            ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
             return
             
         except SwordError as e:
@@ -619,7 +646,7 @@ class SwordController(WSGIController):
             
             # now actually get hold of the representation of the container and send it to the client
             cont = ss.get_container(path, accept_parameters)
-            ssslog.info("Returning " + response.status + " from request on " + __name__)
+            ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
             return cont
             
         except SwordError as e:
@@ -656,13 +683,13 @@ class SwordController(WSGIController):
                 response.status_int = 200
                 response.status = "200 OK"
                 ssslog.info("Returning Deposit Receipt")
-                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
                 return result.receipt
             else:
                 response.status_int = 204
                 response.status = "204 No Content"
                 ssslog.info("Omitting Deposit Receipt")
-                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
                 return
                 
         except SwordError as e:
@@ -706,11 +733,11 @@ class SwordController(WSGIController):
             if config.return_deposit_receipt:
                 response.content_type = "application/atom+xml;type=entry"
                 ssslog.info("Returning Deposit Receipt")
-                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
                 return result.receipt
             else:
                 ssslog.info("Omitting Deposit Receipt")
-                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
                 return
             
         except SwordError as e:
@@ -746,7 +773,7 @@ class SwordController(WSGIController):
             # no need to return any content
             response.status_int = 204
             response.status = "204 No Content"
-            ssslog.info("Returning " + response.status + " from request on " + __name__)
+            ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
             return
             
         except SwordError as e:
@@ -769,8 +796,59 @@ class SwordController(WSGIController):
             
             # now actually get hold of the representation of the statement and send it to the client
             cont = ss.get_statement(path)
-            ssslog.info("Returning " + response.status + " from request on " + __name__)
+            ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
             return cont
             
         except SwordError as e:
             return self.manage_error(e)
+            
+            
+    # OTHER HTTP HANDLERS
+    #############################################################################
+    # Define a set of handlers for the various URLs defined above to be used by web.py
+    # These ones aren't anything to do with the SWORD standard, they are just 
+    # convenient to support the additional URIs produced       
+    
+    def _GET_aggregation(self, path=None):
+        # in this case we just redirect back to the Edit-URI with a 303 See Other
+        ss = SwordServer(config, None)
+        edit_uri = ss.get_edit_uri()
+        response.status_int = 303
+        response.status = "303 See Other"
+        response.headers["Content-Location"] = edit_uri
+        return
+        
+    def _GET_webui(self, path=None):
+        if path is not None:
+            if path.find("/") >= 0:
+                ip = ItemPage(config)
+                return ip.get_item_page(path)
+            else:
+                cp = CollectionPage(config)
+                return cp.get_collection_page(path)
+        else:
+            hp = HomePage(config)
+            return hp.get_home_page()
+            
+    def _GET_part(self, path):
+        ss = SwordServer(config, None)
+        
+        # if we did, we can get hold of the media resource
+        fh = ss.get_part(path)
+        
+        if fh is None:
+            return self.manage_error(SwordError(status=404, empty=True))
+
+        response.content_type = "application/octet-stream" # FIXME: we're not keeping track of content types
+        response.status_int = 200
+        response.status = "200 OK"
+        return fh.read()
+        
+    def _PUT_part(self, path):
+        # FIXME: the spec says that we should either support this or return
+        # 405 Method Not Allowed.
+        # This would be useful for DepositMO compliance, so we should consider
+        # implementing this when time permits
+        response.status_int = 405
+        response.status = "405 Method Not Allowed"
+        return
