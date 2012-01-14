@@ -94,7 +94,7 @@ class SwordHttpHandler(object):
             ssslog.error("unable to interpret authentication header: " + auth_header)
             raise SwordError(error_uri=Errors.bad_request, msg="unable to interpret authentication header")
         
-        ssslog.info("Authentication details: " + str(username) + ":" + str(password) + "; On Behalf Of: " + str(obo))
+        ssslog.info("Authentication details: " + str(username) + ":[**password**]; On Behalf Of: " + str(obo))
 
         authenticator = Authenticator(config)
         try:
@@ -109,6 +109,7 @@ class SwordHttpHandler(object):
     
     def manage_error(self, sword_error):
         status = STATUS_MAP.get(sword_error.status, "400 Bad Request")
+        ssslog.info("Returning error (" + str(sword_error.status) + ") - " + str(sword_error.error_uri))
         web.ctx.status = status
         if not sword_error.empty:
             web.header("Content-Type", "text/xml")
@@ -204,6 +205,7 @@ class SwordHttpHandler(object):
         
         empty_request = False
         if d.content_length == 0:
+            ssslog.info("Received empty deposit request")
             empty_request = True
         if d.content_length > config.max_upload_size:
             raise SwordError(error_uri=Errors.max_upload_size_exceeded, 

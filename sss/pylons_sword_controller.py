@@ -61,7 +61,7 @@ class SwordController(WSGIController):
             ssslog.error("unable to interpret authentication header: " + auth_header)
             raise SwordError(error_uri=Errors.bad_request, msg="unable to interpret authentication header")
         
-        ssslog.info("Authentication details: " + str(username) + ":" + str(password) + "; On Behalf Of: " + str(obo))
+        ssslog.info("Authentication details: " + str(username) + ":[**password**]; On Behalf Of: " + str(obo))
 
         authenticator = Authenticator(config)
         try:
@@ -76,7 +76,7 @@ class SwordController(WSGIController):
     
     def manage_error(self, sword_error):
         response.status_int = sword_error.status
-        ssslog.info("Returning error status: " + str(sword_error.status))
+        ssslog.info("Returning error (" + str(sword_error.status) + ") - " + str(sword_error.error_uri))
         if not sword_error.empty:
             response.content_type = "text/xml"
             return sword_error.error_document
@@ -129,7 +129,10 @@ class SwordController(WSGIController):
             #if len(webin) != 2: # if it is not multipart
                 # FIXME: this is reading everything in, and should be re-evaluated for performance/scalability
             wsgi_input = request.environ['wsgi.input']
-            wsgi_input.seek(0, 0)
+            if hasattr(wsgi_input, "seek"):
+                # in empty requests, the wsgi input object doesn't have a seek() method
+                # so we have to check for it
+                wsgi_input.seek(0, 0)
             
             if wsgi_input is None or wsgi_input.read().strip() == "": # FIXME: this IS NOT safe to scale
                 if allow_empty:
@@ -182,6 +185,7 @@ class SwordController(WSGIController):
         
         empty_request = False
         if d.content_length == 0:
+            ssslog.info("Received empty deposit request")
             empty_request = True
         if d.content_length > config.max_upload_size:
             raise SwordError(error_uri=Errors.max_upload_size_exceeded, 
@@ -259,6 +263,7 @@ class SwordController(WSGIController):
         if http_method == "GET":
             return self._GET_service_document(sub_path)
         else:
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + __name__)
             abort(405, "Method Not Allowed")
             return
     
@@ -269,6 +274,7 @@ class SwordController(WSGIController):
         elif http_method == "POST":
             return self._POST_collection(path)
         else:
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + __name__)
             abort(405, "Method Not Allowed")
             return
     
@@ -283,6 +289,7 @@ class SwordController(WSGIController):
         elif http_method == "DELETE":
             return self._DELETE_media_resource(path)
         else:
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + __name__)
             abort(405, "Method Not Allowed")
             return
             
@@ -297,10 +304,18 @@ class SwordController(WSGIController):
         elif http_method == "DELETE":
             return self._DELETE_container(path)
         else:
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + __name__)
             abort(405, "Method Not Allowed")
             return
     
-    def statement(self, path=None): pass
+    def statement(self, path=None):
+        http_method = request.environ['REQUEST_METHOD']
+        if http_method == "GET":
+            return self._GET_statement(path)
+        else:
+            ssslog.info("Returning (405) Method Not Allowed; Received " + http_method + " request on " + __name__)
+            abort(405, "Method Not Allowed")
+            return
     
     def aggregation(self, path=None): pass
     def part(self, path=None): pass
@@ -326,6 +341,7 @@ class SwordController(WSGIController):
         ss = SwordServer(config, auth)
         sd = ss.service_document(path)
         response.content_type = "text/xml"
+        ssslog.info("Returning " + response.status + " from request on " + __name__)
         return sd
     
     def _GET_collection(self, path=None):
@@ -347,6 +363,7 @@ class SwordController(WSGIController):
         ss = SwordServer(config, auth)
         cl = ss.list_collection(path)
         response.content_type = "text/xml"
+        ssslog.info("Returning " + response.status + " from request on " + __name__)
         return cl
         
     def _POST_collection(self, path=None):
@@ -381,9 +398,11 @@ class SwordController(WSGIController):
             response.status = "201 Created"
             if config.return_deposit_receipt:
                 ssslog.info("Returning deposit receipt")
+                ssslog.info("Returning " + response.status + " from request on " + __name__)
                 return result.receipt
             else:
                 ssslog.info("Omitting deposit receipt")
+                ssslog.info("Returning " + response.status + " from request on " + __name__)
                 return
             
         except SwordError as e:
@@ -407,8 +426,7 @@ class SwordController(WSGIController):
         # 406 Not Acceptable without looking first to see if there is even any media to content negotiate for
         # which would be weird from a client perspective
         if not ss.media_resource_exists(path):
-            abort(404)
-            return
+            return self.manage_error(SwordError(status=404, empty=True))
         
         # get the content negotiation headers
         accept_header = request.environ.get("HTTP_ACCEPT")
@@ -438,6 +456,7 @@ class SwordController(WSGIController):
             f = open(media_resource.filepath, "r")
             response.status_int = 200
             response.status = "200 OK"
+            ssslog.info("Returning " + response.status + " from request on " + __name__)
             return f.read()
 
     def _PUT_media_resource(self, path=None):
@@ -474,11 +493,92 @@ class SwordController(WSGIController):
             ssslog.info("Content replaced")
             response.status_int = 204
             response.status = "204 No Content" # notice that this is different from the POST as per AtomPub
+            ssslog.info("Returning " + response.status + " from request on " + __name__)
             return
             
         except SwordError as e:
             return self.manage_error(e)
     
+    def _POST_media_resource(self, path=None):
+        """
+        POST a simple package into the specified media resource
+        Args:
+        - id:   The ID of the media resource as specified in the requested URL
+        Returns a Deposit Receipt
+        """
+        ssslog.debug("POST to Media Resource (add new file); Incoming HTTP headers: " + str(request.environ))
+        
+        # find out if update is allowed
+        if not config.allow_update:
+            error = SwordError(error_uri=Errors.method_not_allowed, msg="Update operations not currently permitted")
+            return self.manage_error(error)
+            
+        # authenticate
+        try:
+            auth = self.http_basic_authenticate()
+            
+            # check the validity of the request
+            self.validate_deposit_request(None, "6.7.1", None, allow_multipart=False)
+            
+            deposit = self.get_deposit(auth)
+            
+            # if we get here authentication was successful and we carry on
+            ss = SwordServer(config, auth)
+            result = ss.add_content(path, deposit)
+            
+            response.content_type = "application/atom+xml;type=entry"
+            response.headers["Location"] = result.location
+            response.status_int = 201
+            response.status = "201 Created"
+            if config.return_deposit_receipt:
+                ssslog.info("Returning Receipt")
+                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                return result.receipt
+            else:
+                ssslog.info("Omitting Receipt")
+                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                return
+            
+        except SwordError as e:
+            return self.manage_error(e)
+    
+    def _DELETE_media_resource(self, path=None):
+        """
+        DELETE the contents of an object in the store (but not the object's container), leaving behind an empty
+        container for further use
+        Args:
+        - id:   the ID of the object to have its content removed as per the requested URI
+        Return a Deposit Receipt
+        """
+        ssslog.debug("DELETE on Media Resource (remove content, leave container); Incoming HTTP headers: " + str(request.environ))
+        
+        # find out if delete is allowed
+        if not config.allow_delete:
+            error = SwordError(error_uri=Errors.method_not_allowed, msg="Delete operations not currently permitted")
+            return self.manage_error(error)
+
+        # authenticate
+        try:
+            auth = self.http_basic_authenticate()
+            
+            # check the validity of the request
+            self.validate_delete_request("6.6")
+            
+            # parse the delete request out of the HTTP request
+            delete = self.get_delete(auth)
+            
+            # carry out the delete
+            ss = SwordServer(config, auth)
+            result = ss.delete_content(path, delete)
+            
+            # just return, no need to give any more feedback
+            response.status_int = 204
+            response.status = "204 No Content" # No Content
+            ssslog.info("Returning " + response.status + " from request on " + __name__)
+            return
+            
+        except SwordError as e:
+            return self.manage_error(e)
     
     def _GET_container(self, path=None):
         """
@@ -501,8 +601,7 @@ class SwordController(WSGIController):
             # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
             # which would be weird from a client perspective
             if not ss.container_exists(path):
-                abort(404)
-                return
+                return self.manage_error(SwordError(status=404, empty=True))
                 
             # get the content negotiation headers
             accept_header = request.environ.get("HTTP_ACCEPT")
@@ -520,8 +619,158 @@ class SwordController(WSGIController):
             
             # now actually get hold of the representation of the container and send it to the client
             cont = ss.get_container(path, accept_parameters)
+            ssslog.info("Returning " + response.status + " from request on " + __name__)
             return cont
             
         except SwordError as e:
             return self.manage_error(e)
+            
+    def _PUT_container(self, path=None):
+        """
+        PUT a new Entry over the existing entry, or a multipart request over
+        both the existing metadata and the existing content
+        """
+        ssslog.debug("PUT on Container (replace); Incoming HTTP headers: " + str(request.environ))
+        
+        # find out if update is allowed
+        if not config.allow_update:
+            error = SwordError(error_uri=Errors.method_not_allowed, msg="Update operations not currently permitted")
+            return self.manage_error(error)
+        
+        try:
+            # authenticate
+            auth = self.http_basic_authenticate()
+            
+            # check the validity of the request
+            self.validate_deposit_request("6.5.2", None, "6.5.3")
+            
+            # get the deposit object
+            deposit = self.get_deposit(auth)
+            
+            ss = SwordServer(config, auth)
+            result = ss.replace(path, deposit)
+            
+            response.headers["Location"] = result.location
+            if config.return_deposit_receipt:
+                response.content_type = "application/atom+xml;type=entry"
+                response.status_int = 200
+                response.status = "200 OK"
+                ssslog.info("Returning Deposit Receipt")
+                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                return result.receipt
+            else:
+                response.status_int = 204
+                response.status = "204 No Content"
+                ssslog.info("Omitting Deposit Receipt")
+                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                return
+                
+        except SwordError as e:
+            return self.manage_error(e)
+            
+    def _POST_container(self, path=None):
+        """
+        POST some new content into the container identified by the supplied id,
+        or complete an existing deposit (using the In-Progress header)
+        Args:
+        - id:    The ID of the container as contained in the URL
+        Returns a Deposit Receipt
+        """
+        ssslog.debug("POST to Container (add new content and metadata); Incoming HTTP headers: " + str(request.environ))
+        
+        # find out if update is allowed
+        if not config.allow_update:
+            error = SwordError(error_uri=Errors.method_not_allowed, msg="Update operations not currently permitted")
+            return self.manage_error(error)
+
+        try:
+             # authenticate
+            auth = self.http_basic_authenticate()
+            
+            # check the validity of the request
+            self.validate_deposit_request("6.7.2", None, "6.7.3", "9.3", allow_empty=True)
+            
+            deposit = self.get_deposit(auth)
+            
+            ss = SwordServer(config, auth)
+            result = ss.deposit_existing(path, deposit)
+            
+            # NOTE: spec says 201 Created for multipart and 200 Ok for metadata only
+            # we have implemented 200 OK across the board, in the understanding that
+            # in this case the spec is incorrect (correction need to be implemented
+            # asap)
+            
+            response.headers["Location"] = result.location
+            response.status_int = 200
+            response.status = "200 OK"
+            if config.return_deposit_receipt:
+                response.content_type = "application/atom+xml;type=entry"
+                ssslog.info("Returning Deposit Receipt")
+                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                return result.receipt
+            else:
+                ssslog.info("Omitting Deposit Receipt")
+                ssslog.info("Returning " + response.status + " from request on " + __name__)
+                return
+            
+        except SwordError as e:
+            return self.manage_error(e)
+            
+    def _DELETE_container(self, path=None):
+        """
+        DELETE the container (and everything in it) from the store, as identified by the supplied id
+        Args:
+        - id:   the ID of the container
+        Returns nothing, as there is nothing to return (204 No Content)
+        """
+        ssslog.debug("DELETE on Container (remove); Incoming HTTP headers: " + str(request.environ))
+        
+        try:
+            # find out if update is allowed
+            if not config.allow_delete:
+                raise SwordError(error_uri=Errors.method_not_allowed, msg="Delete operations not currently permitted")
+            
+            # authenticate
+            auth = self.http_basic_authenticate()
+            
+            # check the validity of the request
+            self.validate_delete_request("6.8")
+            
+            # get the delete request
+            delete = self.get_delete(auth)
+           
+            # do the delete
+            ss = SwordServer(config, auth)
+            result = ss.delete_container(path, delete)
+            
+            # no need to return any content
+            response.status_int = 204
+            response.status = "204 No Content"
+            ssslog.info("Returning " + response.status + " from request on " + __name__)
+            return
+            
+        except SwordError as e:
+            return self.manage_error(e)
     
+    def _GET_statement(self, path=None):
+        ssslog.debug("GET on Statement (retrieve); Incoming HTTP headers: " + str(request.environ))
+        
+        try:
+            # authenticate
+            auth = self.http_basic_authenticate()
+            
+            ss = SwordServer(config, auth)
+            
+            # first thing we need to do is check that there is an object to return, because otherwise we may throw a
+            # 415 Unsupported Media Type without looking first to see if there is even any media to content negotiate for
+            # which would be weird from a client perspective
+            if not ss.container_exists(path):
+                raise SwordError(status=404, empty=True)
+            
+            # now actually get hold of the representation of the statement and send it to the client
+            cont = ss.get_statement(path)
+            ssslog.info("Returning " + response.status + " from request on " + __name__)
+            return cont
+            
+        except SwordError as e:
+            return self.manage_error(e)
