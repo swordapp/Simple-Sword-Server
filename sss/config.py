@@ -119,7 +119,8 @@ DEFAULT_CONFIG = """
     },
     
     "sword_server" : "sss.repository.SSS",
-    "authenticator" : "sss.repository.SSSAuthenticator"
+    "authenticator" : "sss.repository.SSSAuthenticator",
+    "webui" : "sss.repository.WebInterface"
 }
 """
         
@@ -144,6 +145,9 @@ class Configuration(object):
     
     def get_authenticator_implementation(self):
         return self._get_class(self.authenticator)
+        
+    def get_webui_implementation(self):
+        return self._get_class(self.webui)
     
     def get_container_formats(self):
         default_params = self._get_accept_params(self.container_format_default)
@@ -213,6 +217,9 @@ class Configuration(object):
                 return self._load_class(modpath, classname)
             else:
                 raise e
+        except AttributeError as e:
+            ssslog.debug("Tried and failed to load " + classname + " from " + modpath)
+            raise e
     
     def _load_json(self):
         if not os.path.isfile(self.SSS_CONFIG_FILE):

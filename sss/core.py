@@ -856,3 +856,9 @@ class Statement(object):
 
         return rdf
         
+class WebUI(object):
+    def __init__(self, config):
+        self.config = config
+    
+    def get(self, path=None):
+        return

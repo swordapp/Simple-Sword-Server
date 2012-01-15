@@ -7,7 +7,7 @@ import re, base64, urllib, uuid, inspect
 from core import Auth, SWORDSpec, SwordError, AuthException, DepositRequest, DeleteRequest
 from negotiator import ContentNegotiator, AcceptParameters, ContentType
 from spec import Errors, HttpHeaders, ValidationException
-from webui import HomePage, CollectionPage, ItemPage
+
 
 import logging
 ssslog = logging.getLogger(__name__)
@@ -17,6 +17,7 @@ from sss import Configuration
 config = Configuration()
 Authenticator = config.get_authenticator_implementation()
 SwordServer = config.get_server_implementation()
+WebInterface = config.get_webui_implementation()
 
 __controller__ = "SwordController"
 
@@ -336,7 +337,6 @@ class SwordController(WSGIController):
             abort(405, "Method Not Allowed")
             return
     
-       
     def part(self, path=None):
         http_method = request.environ['REQUEST_METHOD']
         if http_method == "GET":
@@ -819,16 +819,8 @@ class SwordController(WSGIController):
         return
         
     def _GET_webui(self, path=None):
-        if path is not None:
-            if path.find("/") >= 0:
-                ip = ItemPage(config)
-                return ip.get_item_page(path)
-            else:
-                cp = CollectionPage(config)
-                return cp.get_collection_page(path)
-        else:
-            hp = HomePage(config)
-            return hp.get_home_page()
+        w = WebInterface(config)
+        return w.get(path)
             
     def _GET_part(self, path):
         ss = SwordServer(config, None)

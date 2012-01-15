@@ -2,7 +2,6 @@ import web, re, base64, urllib, uuid
 from web.wsgiserver import CherryPyWSGIServer
 from core import Auth, SWORDSpec, SwordError, AuthException, DepositRequest, DeleteRequest
 from negotiator import ContentNegotiator, AcceptParameters, ContentType
-from webui import HomePage, CollectionPage, ItemPage
 from spec import Errors, HttpHeaders, ValidationException
 
 from sss_logging import logging
@@ -13,6 +12,7 @@ from config import Configuration
 config = Configuration()
 Authenticator = config.get_authenticator_implementation()
 SwordServer = config.get_server_implementation()
+WebInterface = config.get_webui_implementation()
 
 # Whether to run using SSL.  This uses a default self-signed certificate.  Change the paths to
 # use an alternative set of keys
@@ -734,16 +734,8 @@ class WebUI(SwordHttpHandler):
     Class to provide a basic web interface to the store for convenience
     """
     def GET(self, path=None):
-        if path is not None:
-            if path.find("/") >= 0:
-                ip = ItemPage(config)
-                return ip.get_item_page(path)
-            else:
-                cp = CollectionPage(config)
-                return cp.get_collection_page(path)
-        else:
-            hp = HomePage(config)
-            return hp.get_home_page()
+        w = WebInterface(config)
+        return w.get(path)
 
 class Part(SwordHttpHandler):
     """
