@@ -1,6 +1,7 @@
 import os, uuid, sys, json
 from ingesters_disseminators import DefaultEntryIngester, DefaultDisseminator, FeedDisseminator, BinaryIngester, SimpleZipIngester, METSDSpaceIngester
 from negotiator import AcceptParameters, ContentType
+from core import SwordServer, Authenticator, WebUI
 
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
@@ -141,13 +142,22 @@ class Configuration(object):
         # the json string.  How much does this matter?
     
     def get_server_implementation(self):
-        return self._get_class(self.sword_server)
+        if self.sword_server is not None:
+            return self._get_class(self.sword_server)
+        else:
+            return SwordServer
     
     def get_authenticator_implementation(self):
-        return self._get_class(self.authenticator)
+        if self.authenticator is not None:
+            return self._get_class(self.authenticator)
+        else:
+            return Authenticator
         
     def get_webui_implementation(self):
-        return self._get_class(self.webui)
+        if self.webui is not None:
+            return self._get_class(self.webui)
+        else:
+            return WebUI
     
     def get_container_formats(self):
         default_params = self._get_accept_params(self.container_format_default)
