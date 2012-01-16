@@ -392,6 +392,7 @@ class MediaResourceContent(SwordHttpHandler):
             # can get hold of the media resource
             media_resource = ss.get_media_resource(path, accept_parameters)
         except SwordError as e:
+            ssslog.debug("Raised error")
             return self.manage_error(e)
 
         # either send the client a redirect, or stream the content out

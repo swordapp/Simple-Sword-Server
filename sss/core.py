@@ -347,20 +347,23 @@ class ServiceDocument(object):
                     mraccepts.set("alternate", "multipart-related")
 
                 # SWORD collection policy
-                collectionPolicy = etree.SubElement(collection, self.ns.SWORD + "collectionPolicy")
-                collectionPolicy.text = col.collection_policy
+                if col.collection_policy is not None:
+                    collectionPolicy = etree.SubElement(collection, self.ns.SWORD + "collectionPolicy")
+                    collectionPolicy.text = col.collection_policy
 
                 # Collection abstract
-                abstract = etree.SubElement(collection, self.ns.DC + "abstract")
-                abstract.text = col.description
+                if col.description is not None:
+                    abstract = etree.SubElement(collection, self.ns.DC + "abstract")
+                    abstract.text = col.description
 
                 # support for mediation
                 mediation = etree.SubElement(collection, self.ns.SWORD + "mediation")
                 mediation.text = "true" if col.mediation else "false"
 
                 # treatment
-                treatment = etree.SubElement(collection, self.ns.SWORD + "treatment")
-                treatment.text = col.treatment
+                if col.treatment is not None:
+                    treatment = etree.SubElement(collection, self.ns.SWORD + "treatment")
+                    treatment.text = col.treatment
 
                 # SWORD packaging formats accepted
                 for format in col.accept_package:
