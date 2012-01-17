@@ -63,6 +63,7 @@ DEFAULT_CONFIG = """
     "max_upload_size" : 16777216,
     # used to generate errors
     # "max_upload_size" : 0,
+    # Just omit the max_upload_size parameter if you don't want any limit
     
     # list of package formats that SSS can provide when retrieving the Media Resource
     "sword_disseminate_package" : [

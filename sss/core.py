@@ -316,7 +316,7 @@ class ServiceDocument(object):
         version.text = self.version
 
         # max upload size
-        if self.max_upload_size != 0:
+        if self.max_upload_size is not None:
             mus = etree.SubElement(service, self.ns.SWORD + "maxUploadSize")
             mus.text = str(self.max_upload_size)
 

@@ -209,8 +209,8 @@ class SwordHttpHandler(object):
             empty_request = True
         if d.content_length > config.max_upload_size:
             raise SwordError(error_uri=Errors.max_upload_size_exceeded, 
-                            msg="Max upload size is " + config.max_upload_size + 
-                            "; incoming content length was " + str(cl))
+                            msg="Max upload size is " + str(config.max_upload_size) + 
+                            "; incoming content length was " + str(d.content_length))
         
         # find out if this is a multipart or not
         is_multipart = False
