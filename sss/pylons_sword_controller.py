@@ -4,7 +4,7 @@ from pylons.controllers import WSGIController
 from pylons.templating import render_mako as render
 
 import re, base64, urllib, uuid, inspect
-from core import Auth, SWORDSpec, SwordError, AuthException, DepositRequest, DeleteRequest
+from core import Auth, SwordError, AuthException, DepositRequest, DeleteRequest
 from negotiator import ContentNegotiator, AcceptParameters, ContentType
 from spec import Errors, HttpHeaders, ValidationException
 

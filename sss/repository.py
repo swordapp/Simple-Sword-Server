@@ -1,5 +1,5 @@
 import os, hashlib, uuid, urllib
-from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, SWORDSpec, Auth, AuthException, SwordError, ServiceDocument, SDCollection, EntryDocument, Authenticator, SwordServer, WebUI
+from core import Statement, DepositResponse, MediaResourceResponse, DeleteResponse, Auth, AuthException, SwordError, ServiceDocument, SDCollection, EntryDocument, Authenticator, SwordServer, WebUI
 from spec import Namespaces, Errors
 from lxml import etree
 from datetime import datetime
@@ -153,6 +153,16 @@ class SSS(SwordServer):
 
         # create a URIManager for us to use
         self.um = URIManager(self.configuration)
+        
+        # URIs to use for the two supported states in SSS
+        self.in_progress_uri = "http://purl.org/net/sword/state/in-progress"
+        self.archived_uri = "http://purl.org/net/sword/state/archived"
+
+        # the descriptions to associated with the two supported states in SSS
+        self.states = {
+            self.in_progress_uri : "The work is currently in progress, and has not passed to a reviewer",
+            self.archived_uri : "The work has passed through review and is now in the archive"
+        }
 
         # build the namespace maps that we will use during serialisation
         # self.sdmap = {None : self.ns.APP_NS, "sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS, "dcterms" : self.ns.DC_NS}
@@ -314,7 +324,11 @@ class SSS(SwordServer):
 
         # the Edit-URI
         edit_uri = self.um.edit_uri(collection, id)
-
+        
+        # State information
+        state_uri = self.in_progress_uri if deposit.in_progress else self.archived_uri
+        state_description = self.states[state_uri]
+        
         # create the initial statement
         s = Statement()
         s.aggregation_uri = agg_uri
@@ -323,9 +337,9 @@ class SSS(SwordServer):
         obo = deposit.auth.obo if deposit.auth is not None else None
         if deposit_uri is not None:
             s.original_deposit(deposit_uri, datetime.now(), deposit.packaging, by, obo)
-        s.in_progress = deposit.in_progress
         s.aggregates = derived_resource_uris
-
+        s.add_state(state_uri, state_description)
+        
         # store the statement by itself
         self.dao.store_statement(collection, id, s)
 
@@ -464,6 +478,10 @@ class SSS(SwordServer):
 
         # the Edit-URI
         edit_uri = self.um.edit_uri(collection, id)
+        
+        # State information
+        state_uri = self.in_progress_uri if deposit.in_progress else self.archived_uri
+        state_description = self.states[state_uri]
 
         # create the new statement
         s = Statement()
@@ -473,7 +491,7 @@ class SSS(SwordServer):
             by = deposit.auth.by if deposit.auth is not None else None
             obo = deposit.auth.obo if deposit.auth is not None else None
             s.original_deposit(deposit_uri, datetime.now(), deposit.packaging, by, obo)
-        s.in_progress = deposit.in_progress
+        s.add_state(state_uri, state_description)
         s.aggregates = derived_resource_uris
 
         # store the statement by itself
@@ -527,11 +545,15 @@ class SSS(SwordServer):
         # the Edit-URI
         edit_uri = self.um.edit_uri(collection, id)
 
+        # State information
+        state_uri = self.in_progress_uri if delete.in_progress else self.archived_uri
+        state_description = self.states[state_uri]
+    
         # create the statement
         s = Statement()
         s.aggregation_uri = agg_uri
         s.rem_uri = edit_uri
-        s.in_progress = delete.in_progress
+        s.add_state(state_uri, state_description)
 
         # store the statement by itself
         self.dao.store_statement(collection, id, s)
@@ -567,9 +589,13 @@ class SSS(SwordServer):
         if not self.exists(oid):
             raise SwordError(status=404, empty=True)
 
+        # State information
+        state_uri = self.in_progress_uri if deposit.in_progress else self.archived_uri
+        state_description = self.states[state_uri]
+
         # load the statement
         s = self.dao.load_statement(collection, id)
-        s.in_progress = deposit.in_progress
+        s.set_state(state_uri, state_description)
         
         # store the content file if one exists, and do some processing on it
         location_uri = None
@@ -675,12 +701,16 @@ class SSS(SwordServer):
         if not self.exists(oid):
             raise SwordError(status=404, empty=True)
 
+        # State information
+        state_uri = self.in_progress_uri if deposit.in_progress else self.archived_uri
+        state_description = self.states[state_uri]
+
         # load the statement
         s = self.dao.load_statement(collection, id)
         
         # do the in-progress first, as some deposits will be empty, and will
         # just be telling us that the client has finished working on this item
-        s.in_progress = deposit.in_progress
+        s.set_state(state_uri, state_description)
         
         # just do some useful logging
         if deposit.atom is None and deposit.content is None:
@@ -1001,7 +1031,7 @@ class DAO(object):
         """ Store the supplied statement document content in the object idenfied by the id in the specified collection """
         # store the RDF version
         sfile = os.path.join(self.configuration.store_dir, collection, id, "sss_statement.xml")
-        self.save(sfile, statement.serialise())
+        self.save(sfile, statement.serialise_rdf())
         # store the Atom Feed version
         sfile = os.path.join(self.configuration.store_dir, collection, id, "sss_statement.atom.xml")
         self.save(sfile, statement.serialise_atom())

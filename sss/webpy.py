@@ -1,6 +1,6 @@
 import web, re, base64, urllib, uuid
 from web.wsgiserver import CherryPyWSGIServer
-from core import Auth, SWORDSpec, SwordError, AuthException, DepositRequest, DeleteRequest
+from core import Auth, SwordError, AuthException, DepositRequest, DeleteRequest
 from negotiator import ContentNegotiator, AcceptParameters, ContentType
 from spec import Errors, HttpHeaders, ValidationException
 

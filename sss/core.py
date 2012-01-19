@@ -596,44 +596,12 @@ class DeleteResponse(object):
         self.error_code = None
         self.error = None
         self.receipt = None
-        
-# Operational SWORD Classes
-#############################################################################
-# Classes which carry out the grunt work of the SSS
-
-class SWORDSpec(object):
-    """
-    Class which attempts to represent the specification itself.  Instead of being operational like the SWORDServer
-    class, it attempts to just be able to interpret the supplied http headers and content bodies and turn them into
-    the entities with which SWORD works.  The jury is out, in my mind, whether this class is a useful separation, but
-    for what it's worth, here it is ...
-    """
-    def __init__(self, config):
-    
-        self.config = config
-    
-        # FIXME: this is a webpy thing ...
-        # The HTTP headers that are part of the specification (from a web.py perspective - don't be fooled, these
-        # aren't the real HTTP header names - see the spec)
-        self.sword_headers = [
-            "HTTP_ON_BEHALF_OF", "HTTP_PACKAGING", "HTTP_IN_PROGRESS", "HTTP_METADATA_RELEVANT",
-            "HTTP_CONTENT_MD5", "HTTP_SLUG", "HTTP_ACCEPT_PACKAGING"
-        ]
-
-        self.error_content_uri = "http://purl.org/net/sword/error/ErrorContent"
-        self.error_checksum_mismatch_uri = "http://purl.org/net/sword/error/ErrorChecksumMismatch"
-        self.error_bad_request_uri = "http://purl.org/net/sword/error/ErrorBadRequest"
-        self.error_target_owner_unknown_uri = "http://purl.org/net/sword/error/TargetOwnerUnknown"
-        self.error_mediation_not_allowed_uri = "http://purl.org/net/sword/error/MediationNotAllowed"
-        self.error_method_not_allowed_uri = "http://purl.org/net/sword/error/MethodNotAllowed"
-        self.error_max_upload_size_exceeded = "http://purl.org/net/sword/error/MaxUploadSizeExceeded"
-
-        
+                
 class Statement(object):
     """
     Class representing the Statement; a description of the object as it appears on the server
     """
-    def __init__(self):
+    def __init__(self, aggregation_uri=None, rem_uri=None, original_deposits=[], aggregates=[], states=[]):
         """
         The statement has 4 important properties:
         - aggregation_uri   -   The URI of the aggregation in ORE terms
@@ -642,22 +610,12 @@ class Statement(object):
         - in_progress       -   Is the submission in progress (boolean)
         - aggregates        -   the non-original deposit files associated with the item
         """
-        self.aggregation_uri = None
-        self.rem_uri = None
-        self.original_deposits = []
-        self.aggregates = []
-        self.in_progress = False
-
-        # URIs to use for the two supported states in SSS
-        self.in_progress_uri = "http://purl.org/net/sword/state/in-progress"
-        self.archived_uri = "http://purl.org/net/sword/state/archived"
-
-        # the descriptions to associated with the two supported states in SSS
-        self.states = {
-            self.in_progress_uri : "The work is currently in progress, and has not passed to a reviewer",
-            self.archived_uri : "The work has passed through review and is now in the archive"
-        }
-
+        self.aggregation_uri = aggregation_uri
+        self.rem_uri = rem_uri
+        self.original_deposits = original_deposits
+        self.aggregates = aggregates
+        self.states = states
+        
         # Namespace map for XML serialisation
         self.ns = Namespaces()
         self.smap = {"rdf" : self.ns.RDF_NS, "ore" : self.ns.ORE_NS, "sword" : self.ns.SWORD_NS}
@@ -666,7 +624,13 @@ class Statement(object):
 
     def __str__(self):
         return str(self.aggregation_uri) + ", " + str(self.rem_uri) + ", " + str(self.original_deposits)
+    
+    def add_state(self, state, state_description):
+        self.states.append((state, state_description))
         
+    def set_state(self, state, state_description):
+        self.states = [(state, state_description)]
+    
     def original_deposit(self, uri, deposit_time, packaging_format, by, obo):
         """
         Add an original deposit to the statement
@@ -691,6 +655,7 @@ class Statement(object):
         
         aggs = []
         ods = []
+        states = []
         for desc in rdf.getchildren():
             packaging = None
             depositedOn = None
@@ -707,7 +672,7 @@ class Statement(object):
                     self.rem_uri = about
                 if element.tag == self.ns.SWORD + "state":
                     state = element.get(self.ns.RDF + "resource")
-                    self.in_progress = state == "http://purl.org/net/sword/state/in-progress"
+                    states.append(state)
                 if element.tag == self.ns.SWORD + "packaging":
                     packaging = element.get(self.ns.RDF + "resource")
                 if element.tag == self.ns.SWORD + "depositedOn":
@@ -721,17 +686,26 @@ class Statement(object):
                 ods.append(about)
                 self.original_deposit(about, depositedOn, packaging, deposit_by, deposit_obo)
         
+        # now find the state descriptions
+        for desc in rdf.getchildren():
+            about = desc.get(self.ns.RDF + "about")
+            if about in states:
+                for element in desc.getchildren():
+                    if element.tag == self.ns.SWORD + "stateDescription":
+                        state_description = element.text
+                        self.add_state(about, state_description)
+        
         # sort out the ordinary aggregations from the original deposits
         self.aggregates = []
         for agg in aggs:
             if agg not in ods:
                 self.aggregates.append(agg)
 
-    def serialise(self):
+    def serialise_rdf(self, existing_rdf_as_string=None):
         """
         Serialise this statement into an RDF/XML string
         """
-        rdf = self.get_rdf_xml()
+        rdf = self.get_rdf_xml(existing_rdf_as_string)
         return etree.tostring(rdf, pretty_print=True)
 
     def serialise_atom(self):
@@ -742,11 +716,11 @@ class Statement(object):
         feed = etree.Element(self.ns.ATOM + "feed", nsmap=self.fmap)
 
         # create the sword:state term in the root of the feed
-        state_uri = self.in_progress_uri if self.in_progress else self.archived_uri
-        state = etree.SubElement(feed, self.ns.SWORD + "state")
-        state.set("href", state_uri)
-        meaning = etree.SubElement(state, self.ns.SWORD + "stateDescription")
-        meaning.text = self.states[state_uri]
+        for state_uri, state_description in self.states:
+            state = etree.SubElement(feed, self.ns.SWORD + "state")
+            state.set("href", state_uri)
+            meaning = etree.SubElement(state, self.ns.SWORD + "stateDescription")
+            meaning.text = state_description
 
         # now do an entry for each original deposit
         for (uri, datestamp, format_uri, by, obo) in self.original_deposits:
@@ -787,47 +761,138 @@ class Statement(object):
 
         return etree.tostring(feed, pretty_print=True)
 
-    def get_rdf_xml(self):
+    def _is_rem(self, rdf):
+        valid = True
+        
+        # does it meet the basic requirements of being a resource map, which 
+        # is to have an ore:describes and and ore:isDescribedBy
+        describes_uri = None
+        rem_uri = None
+        aggregation_uri = None
+        is_described_by_uris = []
+        for desc in rdf.findall(self.ns.RDF + "Description"):
+            # look for the describes tag
+            ore_desc = desc.find(self.ns.ORE + "describes")
+            if ore_desc is not None:
+                describes_uri = ore_desc.get(self.ns.RDF + "resource")
+                rem_uri = desc.get(self.ns.RDF + "about")
+            # look for the isDescribedBy tag
+            ore_idb = desc.findall(self.ns.ORE + "isDescribedBy")
+            if len(ore_idb) > 0:
+                aggregation_uri = desc.get(self.ns.RDF + "about")
+                for idb in ore_idb:
+                    is_described_by_uris.append(idb.get(self.ns.RDF + "resource"))
+        
+        # now check that all those uris tie up:
+        if describes_uri != aggregation_uri:
+            ssslog.info("Validation of Ore Statement failed; ore:describes URI does not match Aggregation URI: " +
+                        str(describes_uri) + " != " + str(aggregation_uri))
+            valid = False
+        if rem_uri not in is_described_by_uris:
+            ssslog.info("Validation of Ore Statement failed; Resource Map URI does not match one of ore:isDescribedBy URIs: " + 
+                        str(rem_uri) + " not in " + str(is_described_by_uris))
+            valid = False
+        
+        ssslog.info("Statement validation; was it a success? " + str(valid))
+        return valid
+
+    def _get_aggregation_element(self, rdf):
+        for desc in rdf.findall(self.ns.RDF + "Description"):
+            ore_idb = desc.findall(self.ns.ORE + "isDescribedBy")
+            if len(ore_idb) > 0:
+                return desc
+        return None
+
+    def _get_description_element(self, rdf, uri):
+        for desc in rdf.findall(self.ns.RDF + "Description"):
+            about = desc.get(self.ns.RDF + "about")
+            if about == uri:
+                return desc
+        return None
+
+    def get_rdf_xml(self, existing_rdf_as_string=None):
         """
         Get an lxml Element object back representing this statement
         """
 
+        # first parse in the existing rdf if necessary
+        rdf = None
+        aggregation = None
+        is_rem = False
+        if existing_rdf_as_string is not None:
+            rdf = etree.fromstring(existing_rdf_as_string)
+            is_rem = self._is_rem(rdf)
+            if is_rem:
+                aggregation = self._get_aggregation_element()
+            else:
+                aggregation = self._get_description_element(rdf, self.aggregation_uri)    
+        else:
+            # create the RDF root
+            rdf = etree.Element(self.ns.RDF + "RDF", nsmap=self.smap)
+
+        # these operations ensure that an existing rdf document becomes a resource
+        # map
+        if not is_rem:
+            # in the RDF root create a Description for the REM which ore:describes the Aggregation
+            description1 = etree.SubElement(rdf, self.ns.RDF + "Description")
+            description1.set(self.ns.RDF + "about", self.rem_uri)
+            describes = etree.SubElement(description1, self.ns.ORE + "describes")
+            describes.set(self.ns.RDF + "resource", self.aggregation_uri)
+
+        if aggregation is not None and not is_rem:
+            # there is already an rdf:Description for the element, but it hasn't
+            # been properly linked to the ReM yet
+            idb = etree.SubElement(aggregation, self.ns.ORE + "isDescribedBy")
+            idb.set(self.ns.RDF + "resource", self.rem_uri)
+
+        if aggregation is None:
+            # CREATE THE AGGREGATION
+            # in the RDF root create a Description for the Aggregation which is ore:isDescribedBy the REM
+            aggregation = etree.SubElement(rdf, self.ns.RDF + "Description")
+            aggregation.set(self.ns.RDF + "about", self.aggregation_uri)
+            idb = etree.SubElement(aggregation, self.ns.ORE + "isDescribedBy")
+            idb.set(self.ns.RDF + "resource", self.rem_uri)
+
         # we want to create an ORE resource map, and also add on the sword specific bits for the original deposits and the state
-
-        # create the RDF root
-        rdf = etree.Element(self.ns.RDF + "RDF", nsmap=self.smap)
-
-        # in the RDF root create a Description for the REM which ore:describes the Aggregation
-        description1 = etree.SubElement(rdf, self.ns.RDF + "Description")
-        description1.set(self.ns.RDF + "about", self.rem_uri)
-        describes = etree.SubElement(description1, self.ns.ORE + "describes")
-        describes.set(self.ns.RDF + "resource", self.aggregation_uri)
-
-        # in the RDF root create a Description for the Aggregation which is ore:isDescribedBy the REM
-        description = etree.SubElement(rdf, self.ns.RDF + "Description")
-        description.set(self.ns.RDF + "about", self.aggregation_uri)
-        idb = etree.SubElement(description, self.ns.ORE + "isDescribedBy")
-        idb.set(self.ns.RDF + "resource", self.rem_uri)
-
+        
         # Create ore:aggreages for all ordinary aggregated files
+        # First build a list of all the urls which are already referred to in the existing rem
+        existing_a = []
+        existing_aggregates = aggregation.findall(self.ns.ORE + "aggregates")
+        for ea in existing_aggregates:
+            existing_a.append(ea.get(self.ns.RDF + "resource"))
         for uri in self.aggregates:
-            aggregates = etree.SubElement(description, self.ns.ORE + "aggregates")
+            if uri in existing_a:
+                continue
+            aggregates = etree.SubElement(aggregation, self.ns.ORE + "aggregates")
             aggregates.set(self.ns.RDF + "resource", uri)
+            existing_a.append(uri) # remember that we've added this aggregation, in case there are duplicates in original_deposits
 
         # Create ore:aggregates and sword:originalDeposit relations for the original deposits
+        existing_od = []
+        existing_ods = aggregation.findall(self.ns.SWORD + "originalDeposit")
+        for eo in existing_ods:
+            existing_od.append(eo.get(self.ns.RDF + "resource"))
         for (uri, datestamp, format, by, obo) in self.original_deposits:
             # standard ORE aggregates statement
-            aggregates = etree.SubElement(description, self.ns.ORE + "aggregates")
-            aggregates.set(self.ns.RDF + "resource", uri)
+            if uri not in existing_a:
+                aggregates = etree.SubElement(aggregation, self.ns.ORE + "aggregates")
+                aggregates.set(self.ns.RDF + "resource", uri)
 
             # assert that this is an original package
-            original = etree.SubElement(description, self.ns.SWORD + "originalDeposit")
-            original.set(self.ns.RDF + "resource", uri)
+            if uri not in existing_od:
+                original = etree.SubElement(aggregation, self.ns.SWORD + "originalDeposit")
+                original.set(self.ns.RDF + "resource", uri)
 
         # now do the state information
-        state_uri = self.in_progress_uri if self.in_progress else self.archived_uri
-        state = etree.SubElement(description, self.ns.SWORD + "state")
-        state.set(self.ns.RDF + "resource", state_uri)
+        for state_uri, state_description in self.states:
+            state = etree.SubElement(aggregation, self.ns.SWORD + "state")
+            state.set(self.ns.RDF + "resource", state_uri)
+            
+            sdesc = etree.SubElement(rdf, self.ns.RDF + "Description")
+            sdesc.set(self.ns.RDF + "about", state_uri)
+            meaning = etree.SubElement(sdesc, self.ns.SWORD + "stateDescription")
+            meaning.text = state_description
 
         # Build the Description elements for the original deposits, with their sword:depositedOn and sword:packaging
         # relations
@@ -850,12 +915,6 @@ class Statement(object):
                 deposit_obo = etree.SubElement(desc, self.ns.SWORD + "depositedOnBehalfOf")
                 deposit_obo.set(self.ns.RDF + "datatype", "http://www.w3.org/2001/XMLSchema#string")
                 deposit_obo.text = obo
-
-        # finally do a description for the state
-        sdesc = etree.SubElement(rdf, self.ns.RDF + "Description")
-        sdesc.set(self.ns.RDF + "about", state_uri)
-        meaning = etree.SubElement(sdesc, self.ns.SWORD + "stateDescription")
-        meaning.text = self.states[state_uri]
 
         return rdf
         
