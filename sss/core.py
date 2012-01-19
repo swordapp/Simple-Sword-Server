@@ -834,23 +834,23 @@ class Statement(object):
         # map
         if not is_rem:
             # in the RDF root create a Description for the REM which ore:describes the Aggregation
-            description1 = etree.SubElement(rdf, self.ns.RDF + "Description")
+            description1 = etree.SubElement(rdf, self.ns.RDF + "Description", nsmap=self.smap)
             description1.set(self.ns.RDF + "about", self.rem_uri)
-            describes = etree.SubElement(description1, self.ns.ORE + "describes")
+            describes = etree.SubElement(description1, self.ns.ORE + "describes", nsmap=self.smap)
             describes.set(self.ns.RDF + "resource", self.aggregation_uri)
 
         if aggregation is not None and not is_rem:
             # there is already an rdf:Description for the element, but it hasn't
             # been properly linked to the ReM yet
-            idb = etree.SubElement(aggregation, self.ns.ORE + "isDescribedBy")
+            idb = etree.SubElement(aggregation, self.ns.ORE + "isDescribedBy", nsmap=self.smap)
             idb.set(self.ns.RDF + "resource", self.rem_uri)
 
         if aggregation is None:
             # CREATE THE AGGREGATION
             # in the RDF root create a Description for the Aggregation which is ore:isDescribedBy the REM
-            aggregation = etree.SubElement(rdf, self.ns.RDF + "Description")
+            aggregation = etree.SubElement(rdf, self.ns.RDF + "Description", nsmap=self.smap)
             aggregation.set(self.ns.RDF + "about", self.aggregation_uri)
-            idb = etree.SubElement(aggregation, self.ns.ORE + "isDescribedBy")
+            idb = etree.SubElement(aggregation, self.ns.ORE + "isDescribedBy", nsmap=self.smap)
             idb.set(self.ns.RDF + "resource", self.rem_uri)
 
         # we want to create an ORE resource map, and also add on the sword specific bits for the original deposits and the state
@@ -864,7 +864,7 @@ class Statement(object):
         for uri in self.aggregates:
             if uri in existing_a:
                 continue
-            aggregates = etree.SubElement(aggregation, self.ns.ORE + "aggregates")
+            aggregates = etree.SubElement(aggregation, self.ns.ORE + "aggregates", nsmap=self.smap)
             aggregates.set(self.ns.RDF + "resource", uri)
             existing_a.append(uri) # remember that we've added this aggregation, in case there are duplicates in original_deposits
 
@@ -876,43 +876,43 @@ class Statement(object):
         for (uri, datestamp, format, by, obo) in self.original_deposits:
             # standard ORE aggregates statement
             if uri not in existing_a:
-                aggregates = etree.SubElement(aggregation, self.ns.ORE + "aggregates")
+                aggregates = etree.SubElement(aggregation, self.ns.ORE + "aggregates", nsmap=self.smap)
                 aggregates.set(self.ns.RDF + "resource", uri)
 
             # assert that this is an original package
             if uri not in existing_od:
-                original = etree.SubElement(aggregation, self.ns.SWORD + "originalDeposit")
+                original = etree.SubElement(aggregation, self.ns.SWORD + "originalDeposit", nsmap=self.smap)
                 original.set(self.ns.RDF + "resource", uri)
 
         # now do the state information
         for state_uri, state_description in self.states:
-            state = etree.SubElement(aggregation, self.ns.SWORD + "state")
+            state = etree.SubElement(aggregation, self.ns.SWORD + "state", nsmap=self.smap)
             state.set(self.ns.RDF + "resource", state_uri)
             
-            sdesc = etree.SubElement(rdf, self.ns.RDF + "Description")
+            sdesc = etree.SubElement(rdf, self.ns.RDF + "Description", nsmap=self.smap)
             sdesc.set(self.ns.RDF + "about", state_uri)
-            meaning = etree.SubElement(sdesc, self.ns.SWORD + "stateDescription")
+            meaning = etree.SubElement(sdesc, self.ns.SWORD + "stateDescription", nsmap=self.smap)
             meaning.text = state_description
 
         # Build the Description elements for the original deposits, with their sword:depositedOn and sword:packaging
         # relations
         for (uri, datestamp, format_uri, by, obo) in self.original_deposits:
-            desc = etree.SubElement(rdf, self.ns.RDF + "Description")
+            desc = etree.SubElement(rdf, self.ns.RDF + "Description", nsmap=self.smap)
             desc.set(self.ns.RDF + "about", uri)
 
-            format = etree.SubElement(desc, self.ns.SWORD + "packaging")
+            format = etree.SubElement(desc, self.ns.SWORD + "packaging", nsmap=self.smap)
             format.set(self.ns.RDF + "resource", format_uri)
 
-            deposited = etree.SubElement(desc, self.ns.SWORD + "depositedOn")
+            deposited = etree.SubElement(desc, self.ns.SWORD + "depositedOn", nsmap=self.smap)
             deposited.set(self.ns.RDF + "datatype", "http://www.w3.org/2001/XMLSchema#dateTime")
             deposited.text = datestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-            deposit_by = etree.SubElement(desc, self.ns.SWORD + "depositedBy")
+            deposit_by = etree.SubElement(desc, self.ns.SWORD + "depositedBy", nsmap=self.smap)
             deposit_by.set(self.ns.RDF + "datatype", "http://www.w3.org/2001/XMLSchema#string")
             deposit_by.text = by
 
             if obo is not None:
-                deposit_obo = etree.SubElement(desc, self.ns.SWORD + "depositedOnBehalfOf")
+                deposit_obo = etree.SubElement(desc, self.ns.SWORD + "depositedOnBehalfOf", nsmap=self.smap)
                 deposit_obo.set(self.ns.RDF + "datatype", "http://www.w3.org/2001/XMLSchema#string")
                 deposit_obo.text = obo
 
