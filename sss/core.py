@@ -601,7 +601,7 @@ class Statement(object):
     """
     Class representing the Statement; a description of the object as it appears on the server
     """
-    def __init__(self, aggregation_uri=None, rem_uri=None, original_deposits=[], aggregates=[], states=[]):
+    def __init__(self, rdf_file=None, aggregation_uri=None, rem_uri=None, original_deposits=[], aggregates=[], states=[]):
         """
         The statement has 4 important properties:
         - aggregation_uri   -   The URI of the aggregation in ORE terms
@@ -621,6 +621,10 @@ class Statement(object):
         self.smap = {"rdf" : self.ns.RDF_NS, "ore" : self.ns.ORE_NS, "sword" : self.ns.SWORD_NS}
         self.asmap = {"oreatom" : self.ns.ORE_ATOM_NS, "atom" : self.ns.ATOM_NS, "rdf" : self.ns.RDF_NS, "ore" : self.ns.ORE_NS, "sword" : self.ns.SWORD_NS}
         self.fmap = {"atom" : self.ns.ATOM_NS, "sword" : self.ns.SWORD_NS}
+        
+        self.rdf = None
+        if rdf_file is not None:
+            self.load_from_rdf(rdf_file)
 
     def __str__(self):
         return str(self.aggregation_uri) + ", " + str(self.rem_uri) + ", " + str(self.original_deposits)
@@ -646,11 +650,16 @@ class Statement(object):
             if agg not in self.aggregates:
                 self.aggregates.append(agg)
 
-    def load(self, filepath):
+    def load_from_rdf(self, filepath_or_filehandle):
         """
         Populate this statement object from the XML serialised statement to be found at the specified filepath
         """
-        f = open(filepath, "r")
+        f = None
+        if hasattr(filepath_or_filehandle, "read"):
+            f = filepath_or_filehandle
+        else:
+            f = open(filepath_or_filehandle, "r")
+        
         rdf = etree.fromstring(f.read())
         
         aggs = []
@@ -700,6 +709,8 @@ class Statement(object):
         for agg in aggs:
             if agg not in ods:
                 self.aggregates.append(agg)
+                
+        self.rdf = rdf
 
     def serialise_rdf(self, existing_rdf_as_string=None):
         """
@@ -823,7 +834,7 @@ class Statement(object):
             rdf = etree.fromstring(existing_rdf_as_string)
             is_rem = self._is_rem(rdf)
             if is_rem:
-                aggregation = self._get_aggregation_element()
+                aggregation = self._get_aggregation_element(rdf)
             else:
                 aggregation = self._get_description_element(rdf, self.aggregation_uri)    
         else:
@@ -897,19 +908,25 @@ class Statement(object):
         # Build the Description elements for the original deposits, with their sword:depositedOn and sword:packaging
         # relations
         for (uri, datestamp, format_uri, by, obo) in self.original_deposits:
+            if uri is None:
+                continue
+            
             desc = etree.SubElement(rdf, self.ns.RDF + "Description", nsmap=self.smap)
             desc.set(self.ns.RDF + "about", uri)
 
-            format = etree.SubElement(desc, self.ns.SWORD + "packaging", nsmap=self.smap)
-            format.set(self.ns.RDF + "resource", format_uri)
+            if format_uri is not None:
+                format = etree.SubElement(desc, self.ns.SWORD + "packaging", nsmap=self.smap)
+                format.set(self.ns.RDF + "resource", format_uri)
 
-            deposited = etree.SubElement(desc, self.ns.SWORD + "depositedOn", nsmap=self.smap)
-            deposited.set(self.ns.RDF + "datatype", "http://www.w3.org/2001/XMLSchema#dateTime")
-            deposited.text = datestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if datestamp is not None:
+                deposited = etree.SubElement(desc, self.ns.SWORD + "depositedOn", nsmap=self.smap)
+                deposited.set(self.ns.RDF + "datatype", "http://www.w3.org/2001/XMLSchema#dateTime")
+                deposited.text = datestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-            deposit_by = etree.SubElement(desc, self.ns.SWORD + "depositedBy", nsmap=self.smap)
-            deposit_by.set(self.ns.RDF + "datatype", "http://www.w3.org/2001/XMLSchema#string")
-            deposit_by.text = by
+            if by is not None:
+                deposit_by = etree.SubElement(desc, self.ns.SWORD + "depositedBy", nsmap=self.smap)
+                deposit_by.set(self.ns.RDF + "datatype", "http://www.w3.org/2001/XMLSchema#string")
+                deposit_by.text = by
 
             if obo is not None:
                 deposit_obo = etree.SubElement(desc, self.ns.SWORD + "depositedOnBehalfOf", nsmap=self.smap)

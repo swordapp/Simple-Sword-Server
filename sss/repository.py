@@ -1139,8 +1139,7 @@ class DAO(object):
         Returns a Statement object fully populated to represent this object
         """
         sfile = os.path.join(self.configuration.store_dir, collection, id, "sss_statement.xml")
-        s = Statement()
-        s.load(sfile)
+        s = Statement(rdf_file=sfile)
         return s
 
     def list_content(self, collection, id, exclude=[]):
