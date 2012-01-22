@@ -187,6 +187,8 @@ class EntryDocument(object):
         
         if self.parsed:    
             for element in self.dom.getchildren():
+                if isinstance(element, etree._Comment):
+                    continue
                 field = self._canonical_tag(element.tag)
                 ssslog.debug("Attempting to intepret field: '%s'" % field)
                 if field == "atom_id" and element.text is not None:
@@ -649,8 +651,15 @@ class DepositRequest(SWORDRequest):
         self.content_type = "application/octet-stream"
         self.content = None
         self.atom = None
+        self.entry_document = None
         self.filename = "unnamed.file"
         self.too_large = False
+        
+    def get_entry_document(self):
+        if self.entry_document is None:
+            if self.atom is not None:
+                self.entry_document = EntryDocument(xml_source=self.atom)
+        return self.entry_document
 
 class DepositResponse(object):
     """
