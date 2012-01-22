@@ -1,4 +1,4 @@
-import web, os, base64
+import web, os, base64, uuid
 from lxml import etree
 from datetime import datetime
 from spec import Namespaces, HttpHeaders, Errors
@@ -145,12 +145,14 @@ class EntryDocument(object):
     def __init__(self, atom_id=None, alternate_uri=None, content_uri=None, edit_uri=None, se_uri=None, em_uris=[], 
                     packaging=[], state_uris=[], updated=None, dc_metadata={}, 
                     generator=("http://www.swordapp.org/sss", __version__), 
-                    verbose_description=None, treatment=None, original_deposit_uri=None, derived_resource_uris=[], nsmap=None):
+                    verbose_description=None, treatment=None, original_deposit_uri=None, derived_resource_uris=[], nsmap=None,
+                    xml_source=None):
         self.ns = Namespaces()
         self.drmap = {None: self.ns.ATOM_NS, "sword" : self.ns.SWORD_NS, "dcterms" : self.ns.DC_NS}
         if nsmap is not None:
             self.drmap = nsmap
             
+        self.other_metadata = {}
         self.dc_metadata = dc_metadata
         self.atom_id = atom_id if atom_id is not None else "urn:uuid:" + str(uuid.uuid4())
         self.updated = updated if updated is not None else datetime.now()
@@ -166,7 +168,116 @@ class EntryDocument(object):
         self.state_uris = state_uris
         self.original_deposit_uri = original_deposit_uri
         self.derived_resource_uris = derived_resource_uris
+        
+        # we may have been passed the xml_source argument, in which case we want
+        # to load from a string
+        self.links = {}
+        self.dom = None
+        self.parsed = False
+        if xml_source is not None:
+            self._load(xml_source)
 
+    def _load(self, xml_source):
+        try:
+            self.dom = etree.fromstring(xml_source)
+            self.parsed = True
+        except Exception as e:
+            ssslog.error("Was not able to parse the Entry Document as XML.")
+            raise e
+        
+        if self.parsed:    
+            for element in self.dom.getchildren():
+                field = self._canonical_tag(element.tag)
+                ssslog.debug("Attempting to intepret field: '%s'" % field)
+                if field == "atom_id" and element.text is not None:
+                    self.atom_id = element.text.strip()
+                elif field == "atom_updated" and element.text is not None:
+                    try:
+                        self.updated = datetime.strptime(element.text.strip(), "%Y-%m-%dT%H:%M:%SZ")
+                    except Exception as e:
+                        ssslog.info("Unable to parse updated time: " + element.text.strip())
+                elif field == "atom_link":
+                    self._handle_link(element)
+                elif field == "atom_content":
+                    self._handle_content(element)
+                elif field == "atom_generator":
+                    uri = element.attrib.get("uri")
+                    version = element.attrib.get("version")
+                    self.generator = (uri, version)
+                elif field == "sword_packaging" and element.text is not None:
+                    self.packaging.append(element.text.strip())
+                elif field == "sword_verboseDescription" and element.text is not None:
+                    self.verbose_description = element.text.strip()
+                elif field == "sword_treatment" and element.text is not None:
+                    self.treatment = element.text.strip()
+                elif field.startswith("dcterms_") and element.text is not None:
+                    field = field[8:] # get rid of the dcterms_ prefix
+                    if self.dc_metadata.has_key(field):
+                        self.dc_metadata[field].append(element.text.strip())                        
+                    else:
+                        self.dc_metadata[field] = [element.text.strip()]
+                else:
+                    if element.text is not None: # handle empty elements
+                        if self.other_metadata.has_key(field):
+                            self.other_metadata[field].append(element.text.strip())                        
+                        else:
+                            self.other_metadata[field] = [element.text.strip()]
+        
+
+    def _canonical_tag(self, tag):
+        ns, field = tag.rsplit("}", 1)
+        prefix = self.ns.prefix.get(ns[1:], ns[1:])
+        return prefix + "_" + field
+
+    def _handle_link(self, e):
+        """Method that handles the intepreting of <atom:link> element information and placing it into the anticipated attributes."""
+        # MUST have rel
+        rel = e.attrib.get('rel', None)
+        if rel:
+            if rel == "edit":
+                self.edit_uri = e.attrib.get('href', None)
+            elif rel == "edit-media":
+                # FIXME: need to better handle uris with types
+                self.em_uris.append((e.attrib.get('href', None), e.attrib.get("type", None)))
+                # only put the edit-media iri in the convenience attribute if
+                # there is no 'type'
+                #if not ('type' in e.attrib.keys()):
+                #    self.edit_media = e.attrib.get('href', None)
+                #elif e.attrib['type'] == "application/atom+xml;type=feed":
+                #    self.edit_media_feed = e.attrib.get('href', None)
+            elif rel == "http://purl.org/net/sword/terms/add":
+                self.se_uri = e.attrib.get('href', None)
+            elif rel == "alternate":
+                self.alternate_uri = e.attrib.get('href', None)
+            elif rel == "http://purl.org/net/sword/terms/statement":
+                self.state_uris.append((e.attrib.get('href', None), e.attrib.get("type", None)))
+            elif rel == "http://purl.org/net/sword/terms/originalDeposit":
+                self.original_deposit_uri = e.attrib.get("href", None)
+            elif rel == "http://purl.org/net/sword/terms/derivedResource":
+                # FIXME: doesn't handle types
+                self.derived_resource_uris.append(e.attrib.get("href", None))
+                    
+            # Put all links into .links attribute, with all element attribs
+            attribs = {}
+            for k,v in e.attrib.iteritems():
+                if k != "rel":
+                    attribs[k] = v
+            if self.links.has_key(rel): 
+                self.links[rel].append(attribs)
+            else:
+                self.links[rel] = [attribs]
+            
+        
+    def _handle_content(self, e):
+        """Method to intepret the <atom:content> elements."""
+        # eg <content type="application/zip" src="http://swordapp.org/cont-IRI/43/my_deposit"/>
+        if e.attrib.has_key("src"):
+            src = e.attrib['src']
+            info = dict(e.attrib).copy()
+            del info['src']
+            #self.content[src] = info # FIXME: this class isn't generic enough yet to do this
+            self.content_uri = src
+    
     def serialise(self):
         # the main entry document room
         entry = etree.Element(self.ns.ATOM + "entry", nsmap=self.drmap)
@@ -202,6 +313,12 @@ class EntryDocument(object):
 
         # now embed all the metadata as foreign markup
         for field in self.dc_metadata.keys():
+            # ensure it's a list (common mistake)
+            if not isinstance(self.dc_metadata[field], list):
+                self.dc_metadata[field] = [self.dc_metadata[field]]
+            if field.startswith("dcterms_"):
+                # a potentially common mistake?
+                field = field[8:]
             for v in self.dc_metadata[field]:
                 fdc = etree.SubElement(entry, self.ns.DC + field)
                 fdc.text = v
@@ -265,6 +382,7 @@ class EntryDocument(object):
             od.set("rel", "http://purl.org/net/sword/terms/originalDeposit")
             od.set("href", self.original_deposit_uri)
         
+        # FIXME: doesn't handle types
         # Derived Resources
         if self.derived_resource_uris is not None:
             for uri in self.derived_resource_uris:

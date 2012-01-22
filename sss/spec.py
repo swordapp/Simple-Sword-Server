@@ -4,6 +4,7 @@
 from sss_logging import logging
 ssslog = logging.getLogger(__name__)
 
+# FIXME: this is a poorly constructed object
 class Namespaces(object):
     """
     This class encapsulates all the namespace declarations that we will need
@@ -12,30 +13,48 @@ class Namespaces(object):
         # AtomPub namespace and lxml format
         self.APP_NS = "http://www.w3.org/2007/app"
         self.APP = "{%s}" % self.APP_NS
+        self.APP_PREFIX = "app"
 
         # Atom namespace and lxml format
         self.ATOM_NS = "http://www.w3.org/2005/Atom"
         self.ATOM = "{%s}" % self.ATOM_NS
+        self.ATOM_PREFIX = "atom"
 
         # SWORD namespace and lxml format
         self.SWORD_NS = "http://purl.org/net/sword/terms/"
         self.SWORD = "{%s}" % self.SWORD_NS
+        self.SWORD_PREFIX = "sword"
 
         # Dublin Core namespace and lxml format
         self.DC_NS = "http://purl.org/dc/terms/"
         self.DC = "{%s}" % self.DC_NS
+        self.DC_PREFIX = "dcterms"
 
         # RDF namespace and lxml format
         self.RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
         self.RDF = "{%s}" % self.RDF_NS
+        self.RDF_PREFIX = "rdf"
 
         # ORE namespace and lxml format
         self.ORE_NS = "http://www.openarchives.org/ore/terms/"
         self.ORE = "{%s}" % self.ORE_NS
+        self.ORE_PREFIX = "ore"
 
         # ORE ATOM
         self.ORE_ATOM_NS = "http://www.openarchives.org/ore/atom/"
         self.ORE_ATOM = "{%s}" % self.ORE_ATOM_NS
+        self.ORE_ATOM_PREFIX = "oreatom"
+        
+        # lookup dictionary
+        self.prefix = {
+            self.APP_NS : self.APP_PREFIX,
+            self.ATOM_NS : self.ATOM_PREFIX,
+            self.SWORD_NS : self.SWORD_PREFIX,
+            self.DC_NS : self.DC_PREFIX,
+            self.RDF_NS : self.RDF_PREFIX,
+            self.ORE_NS : self.ORE_PREFIX,
+            self.ORE_ATOM_NS : self.ORE_ATOM_PREFIX
+        }
         
 class Errors(object):
     content = "http://purl.org/net/sword/error/ErrorContent"
