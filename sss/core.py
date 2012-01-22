@@ -923,15 +923,15 @@ class Statement(object):
         
         # now check that all those uris tie up:
         if describes_uri != aggregation_uri:
-            ssslog.info("Validation of Ore Statement failed; ore:describes URI does not match Aggregation URI: " +
-                        str(describes_uri) + " != " + str(aggregation_uri))
+            ssslog.info("Validation of RDF as valid ReM failed; ore:describes URI does not match Aggregation URI: " +
+                        str(describes_uri) + " != " + str(aggregation_uri) + " (this is non fatal, don't panic)")
             valid = False
         if rem_uri not in is_described_by_uris:
-            ssslog.info("Validation of Ore Statement failed; Resource Map URI does not match one of ore:isDescribedBy URIs: " + 
-                        str(rem_uri) + " not in " + str(is_described_by_uris))
+            ssslog.info("Validation of RDF as valid ReM failed; Resource Map URI does not match one of ore:isDescribedBy URIs: " + 
+                        str(rem_uri) + " not in " + str(is_described_by_uris) + " (this is non fatal, don't panic)")
             valid = False
         
-        ssslog.info("Statement validation; was it a success? " + str(valid))
+        ssslog.info("Was supplied RDF a ReM? " + str(valid))
         return valid
 
     def _get_aggregation_element(self, rdf):
@@ -952,6 +952,8 @@ class Statement(object):
         """
         Get an lxml Element object back representing this statement
         """
+
+        ssslog.debug("Merging with supplied RDF string: " + existing_rdf_as_string)
 
         # first parse in the existing rdf if necessary
         rdf = None
