@@ -770,6 +770,7 @@ class Statement(object):
         - deposit_time:     When the deposit was originally made
         - packaging_format:     The package format of the deposit, as supplied in the Packaging header
         """
+        ssslog.debug("Adding original deposit to Statement: " + uri)
         self.original_deposits.append((uri, deposit_time, packaging_format, by, obo))
 
     def add_normalised_aggregations(self, aggs):
@@ -995,12 +996,14 @@ class Statement(object):
 
         # we want to create an ORE resource map, and also add on the sword specific bits for the original deposits and the state
         
-        # Create ore:aggreages for all ordinary aggregated files
+        # Create ore:aggregates for all ordinary aggregated files
         # First build a list of all the urls which are already referred to in the existing rem
         existing_a = []
         existing_aggregates = aggregation.findall(self.ns.ORE + "aggregates")
         for ea in existing_aggregates:
             existing_a.append(ea.get(self.ns.RDF + "resource"))
+        ssslog.debug("Existing aggregated resources: " + str(existing_a))
+        ssslog.debug("Adding aggregated resources: " + str(self.aggregates))
         for uri in self.aggregates:
             if uri in existing_a:
                 continue
@@ -1013,14 +1016,17 @@ class Statement(object):
         existing_ods = aggregation.findall(self.ns.SWORD + "originalDeposit")
         for eo in existing_ods:
             existing_od.append(eo.get(self.ns.RDF + "resource"))
+        ssslog.debug("Existing original deposits: " + str(existing_od))
         for (uri, datestamp, format, by, obo) in self.original_deposits:
             # standard ORE aggregates statement
             if uri not in existing_a:
+                ssslog.debug("Adding aggregated resource: " + uri)
                 aggregates = etree.SubElement(aggregation, self.ns.ORE + "aggregates", nsmap=self.smap)
                 aggregates.set(self.ns.RDF + "resource", uri)
 
             # assert that this is an original package
             if uri not in existing_od:
+                ssslog.debug("Adding original deposit: " + uri)
                 original = etree.SubElement(aggregation, self.ns.SWORD + "originalDeposit", nsmap=self.smap)
                 original.set(self.ns.RDF + "resource", uri)
 
