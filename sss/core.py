@@ -139,6 +139,9 @@ class Authenticator(object):
         
     def basic_authenticate(self, username, password, obo):
         raise NotImplementedError()
+        
+    def repoze_who_authenticate(self, identity, obo):
+        raise NotImplementedError()
 
 class EntryDocument(object):
 
@@ -557,17 +560,15 @@ class SwordError(Exception):
         return etree.tostring(entry, pretty_print=True)
 
 class AuthException(Exception):
-    def __init__(self, authentication_failed=False, target_owner_unknown=False):
+    def __init__(self, authentication_failed=False, target_owner_unknown=False, msg=None):
         self.authentication_failed = authentication_failed
         self.target_owner_unknown = target_owner_unknown
+        self.msg = msg
 
 class Auth(object):
-    def __init__(self, by=None, obo=None):
-        self.by = by
-        self.obo = obo
-
-    def success(self):
-        return self.by is not None and not self.target_owner_unknown
+    def __init__(self, username=None, on_behalf_of=None):
+        self.username = username
+        self.on_behalf_of = on_behalf_of
 
 class SWORDRequest(object):
     """

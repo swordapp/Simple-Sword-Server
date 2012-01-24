@@ -42,7 +42,39 @@ class SwordController(WSGIController):
     # Generically useful methods
     ############################
 
+    def authenticate(self):
+        # first check to see if there's a repoze.who auth
+        identity = request.environ.get("repoze.who.identity")
+        if identity is not None:
+            # we have authenticated with repoze.who already
+            return self.repoze_who_authenticate()
+        else:
+            # try and do HTTP basic
+            return self.http_basic_authenticate()
+    
+    def repoze_who_authenticate(self):
+          ssslog.debug("Authentication handled by repoze.who")
+          
+          # get the auth details
+          identity = request.environ.get("repoze.who.identity")
+          obo = request.environ.get(HEADER_MAP[HttpHeaders.on_behalf_of])
+          
+          ssslog.info("Authentication details: " + str(identity["repoze.who.userid"]) + "; On Behalf Of: " + str(obo))
+          
+          authenticator = Authenticator(config)
+          try:
+              auth = authenticator.repoze_who_authenticate(identity, obo)
+          except AuthException as e:
+            if e.authentication_failed:
+                raise SwordError(status=401, empty=True)
+            elif e.target_owner_unknown:
+                raise SwordError(error_uri=Errors.target_owner_unknown, msg="unknown user " + str(obo) + " as on behalf of user")
+          
+          return auth
+
     def http_basic_authenticate(self):
+        ssslog.debug("Attempting HTTP Basic Authentication")
+        
         # extract the appropriate HTTP headers
         auth_header = request.environ.get('HTTP_AUTHORIZATION')
         obo = request.environ.get(HEADER_MAP[HttpHeaders.on_behalf_of])
@@ -360,7 +392,7 @@ class SwordController(WSGIController):
         
         # authenticate
         try:
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
         except SwordError as e:
             return self.manage_error(e)
 
@@ -382,7 +414,7 @@ class SwordController(WSGIController):
         
         # authenticate
         try:
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
         except SwordError as e:
             return self.manage_error(e)
 
@@ -404,7 +436,7 @@ class SwordController(WSGIController):
         
         try:
             # authenticate
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
             
             # check the validity of the request
             self.validate_deposit_request("6.3.3", "6.3.1", "6.3.2")
@@ -502,7 +534,7 @@ class SwordController(WSGIController):
 
         # authenticate
         try:
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
             
             # check the validity of the request (note that multipart requests 
             # and atom-only are not permitted in this method)
@@ -542,7 +574,7 @@ class SwordController(WSGIController):
             
         # authenticate
         try:
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
             
             # check the validity of the request
             self.validate_deposit_request(None, "6.7.1", None, allow_multipart=False)
@@ -586,7 +618,7 @@ class SwordController(WSGIController):
 
         # authenticate
         try:
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
             
             # check the validity of the request
             self.validate_delete_request("6.6")
@@ -620,7 +652,7 @@ class SwordController(WSGIController):
         
         # authenticate
         try:
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
             
             ss = SwordServer(config, auth)
             
@@ -666,7 +698,7 @@ class SwordController(WSGIController):
         
         try:
             # authenticate
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
             
             # check the validity of the request
             self.validate_deposit_request("6.5.2", None, "6.5.3")
@@ -712,7 +744,7 @@ class SwordController(WSGIController):
 
         try:
              # authenticate
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
             
             # check the validity of the request
             self.validate_deposit_request("6.7.2", None, "6.7.3", "9.3", allow_empty=True)
@@ -758,7 +790,7 @@ class SwordController(WSGIController):
                 raise SwordError(error_uri=Errors.method_not_allowed, msg="Delete operations not currently permitted")
             
             # authenticate
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
             
             # check the validity of the request
             self.validate_delete_request("6.8")
@@ -784,7 +816,7 @@ class SwordController(WSGIController):
         
         try:
             # authenticate
-            auth = self.http_basic_authenticate()
+            auth = self.authenticate()
             
             ss = SwordServer(config, auth)
             
