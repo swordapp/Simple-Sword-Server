@@ -333,8 +333,8 @@ class SSS(SwordServer):
         s = Statement()
         s.aggregation_uri = agg_uri
         s.rem_uri = edit_uri
-        by = deposit.auth.by if deposit.auth is not None else None
-        obo = deposit.auth.obo if deposit.auth is not None else None
+        by = deposit.auth.username if deposit.auth is not None else None
+        obo = deposit.auth.on_behalf_of if deposit.auth is not None else None
         if deposit_uri is not None:
             s.original_deposit(deposit_uri, datetime.now(), deposit.packaging, by, obo)
         s.aggregates = derived_resource_uris
@@ -488,8 +488,8 @@ class SSS(SwordServer):
         s.aggregation_uri = agg_uri
         s.rem_uri = edit_uri
         if deposit_uri is not None:
-            by = deposit.auth.by if deposit.auth is not None else None
-            obo = deposit.auth.obo if deposit.auth is not None else None
+            by = deposit.auth.username if deposit.auth is not None else None
+            obo = deposit.auth.on_behalf_of if deposit.auth is not None else None
             s.original_deposit(deposit_uri, datetime.now(), deposit.packaging, by, obo)
         s.add_state(state_uri, state_description)
         s.aggregates = derived_resource_uris
@@ -616,8 +616,8 @@ class SSS(SwordServer):
             # An identifier which will resolve to the package just deposited
             deposit_uri = self.um.part_uri(collection, id, fn)
             
-            by = deposit.auth.by if deposit.auth is not None else None
-            obo = deposit.auth.obo if deposit.auth is not None else None
+            by = deposit.auth.username if deposit.auth is not None else None
+            obo = deposit.auth.on_behalf_of if deposit.auth is not None else None
             s.original_deposit(deposit_uri, datetime.now(), deposit.packaging, by, obo)
             
             # a list of identifiers which will resolve to the derived resources
@@ -756,8 +756,8 @@ class SSS(SwordServer):
             deposit_uri = self.um.part_uri(collection, id, fn)
 
             # add the new deposit
-            by = deposit.auth.by if deposit.auth is not None else None
-            obo = deposit.auth.obo if deposit.auth is not None else None
+            by = deposit.auth.username if deposit.auth is not None else None
+            obo = deposit.auth.on_behalf_of if deposit.auth is not None else None
             s.original_deposit(deposit_uri, datetime.now(), deposit.packaging, by, obo)
         
         # add the new list of aggregations to the existing list, allowing the
@@ -896,7 +896,7 @@ class SSS(SwordServer):
     def check_delete_errors(self, delete):
         # have we been asked to do a mediated delete, when this is not allowed?
         if delete.auth is not None:
-            if delete.auth.obo is not None and not self.configuration.mediation:
+            if delete.auth.on_behalf_of is not None and not self.configuration.mediation:
                 raise SwordError(Errors.mediation_not_allowed)
 
     def check_deposit_errors(self, deposit):
@@ -914,7 +914,7 @@ class SSS(SwordServer):
 
         # have we been asked to do a mediated deposit, when this is not allowed?
         if deposit.auth is not None:
-            if deposit.auth.obo is not None and not self.configuration.mediation:
+            if deposit.auth.on_behalf_of is not None and not self.configuration.mediation:
                 raise SwordError(error_uri=Errors.mediation_not_allowed)
 
         return None

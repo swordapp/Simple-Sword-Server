@@ -954,8 +954,8 @@ class Statement(object):
         """
         Get an lxml Element object back representing this statement
         """
-
-        ssslog.debug("Merging with supplied RDF string: " + existing_rdf_as_string)
+        if existing_rdf_as_string is not None:
+            ssslog.debug("Merging with supplied RDF string: " + existing_rdf_as_string)
 
         # first parse in the existing rdf if necessary
         rdf = None
