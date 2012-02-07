@@ -1222,12 +1222,12 @@ class ItemPage(WebPage):
         file_frag = self._layout_files(statement)
         
         frag = "<h1>Item: " + id + "</h1>"
-        frag += "<strong>State</strong>: " + state_frag
+        frag += "<strong>State(s)</strong>: " + state_frag
         frag += self._layout_sections(md_frag, file_frag)
         
         head_frag = "<link rel=\"http://purl.org/net/sword/terms/edit\" href=\"" + self.um.edit_uri(collection, id) + "\"/>"
-        head_frag += "<link rel=\"http://purl.org/net/sword/terms/statement\" href=\"" + self.um.state_uri(collection, id, "atom") + "\"/>"
-        head_frag += "<link rel=\"http://purl.org/net/sword/terms/statement\" href=\"" + self.um.state_uri(collection, id, "ore") + "\"/>"
+        head_frag += "<link rel=\"http://purl.org/net/sword/terms/statement\" type=\"application/atom+xml\" href=\"" + self.um.state_uri(collection, id, "atom") + "\"/>"
+        head_frag += "<link rel=\"http://purl.org/net/sword/terms/statement\" type=\"application/rdf+xml\" href=\"" + self.um.state_uri(collection, id, "ore") + "\"/>"
         
         return self._wrap_html("Item: " + id, frag, head_frag)
     
@@ -1249,10 +1249,10 @@ class ItemPage(WebPage):
         return frag
     
     def _get_state_frag(self, statement):
-        if statement.in_progress:
-            return statement.in_progress_uri
-        else:
-            return statement.archived_uri
+        frag = ""
+        for state, desc in statement.states:
+            frag += state + " (" + desc + ") "
+        return frag
     
     def _layout_sections(self, metadata, files):
         return "<table border=\"0\"><tr><td valign=\"top\">" + metadata + "</td><td valign=\"top\">" + files + "</td></tr></table>"
