@@ -10,6 +10,35 @@ SSS_CONFIG_FILE = "./sss.conf.json"
 
 DEFAULT_CONFIG = """
 {
+    ############################################################################
+    # SWORD SERVER CONFIGURATION
+    ############################################################################
+    # This configuration file specifies the parameters for SSS
+    #
+    # Each configuration option can be accessed as an attribute of the 
+    # Configuration python object.  e.g.
+    #
+    #   Configuration().base_url
+    #
+    # You may add any other configuration options directly to this JSON file
+    # and they will be picked up in the same way by the Configuration object.
+    #
+    # Some core configuration options have special methods for access built into
+    # the Configuration object (check the docs for details)
+    #
+    # This file is JSON formatted with one extension: comments are allowed.
+    # Comments are must be on a line of their own, and prefixed with #.  The #
+    # must be the first non-whitespace character on the line.  The configuration
+    # interpreter will strip all such lines before parsing the JSON, but will
+    # leave blank lines in the resulting JSON so that errors may be detected
+    # accurately by line number.
+    #
+    # To validate an this file, run:
+    #
+    #   python config.py /path/to/sss.conf.json
+    #
+    ############################################################################
+    
     # The base url of the webservice where SSS is deployed
     "base_url" : "http://localhost:8080/",
     # if you are using Apache, you should probably use this base_url instead
@@ -101,25 +130,40 @@ DEFAULT_CONFIG = """
     # we can turn off deposit receipts, which is allowed by the specification
     "return_deposit_receipt" : true,
 
+    # The acceptable formats that the server can return the media resource in
+    # on request.
+    # This is used in Content Negotiation during GET on the EM-URI
     "media_resource_formats" : [
         {"content_type" : "application/zip", "packaging": "http://purl.org/net/sword/package/SimpleZip"},
         {"content_type" : "application/zip"},
         {"content_type" : "application/atom+xml;type=feed"},
         {"content_type" : "text/html"}
     ],
+    
+    # If no Accept parameters are given to the server on GET to the EM-URI the
+    # following defaults will be used to determine the response type
     "media_resource_default" : {
         "content_type" : "application/zip"
     },
     
+    # The acceptable formats that the server can return the entry document in
+    # on request
+    # This is used in Content Negotiation during GET on the Edit-URI
     "container_formats" : [
         {"content_type" : "application/atom+xml;type=entry" },
         {"content_type" : "application/atom+xml;type=feed" },
         {"content_type" : "application/rdf+xml" }
     ],
+    
+    # If no Accept parameters are given to the server on GET to the Edit-URI the
+    # following defaults will be used to determine the response type
     "container_format_default" : {
         "content_type" : "application/atom+xml;type=entry"
     },
     
+    # Dynamically load the implementation classes for the 3 main interfaces
+    # In this default configuration we use the built-in SSS repository's 
+    # implementations for everything
     "sword_server" : "sss.repository.SSS",
     "authenticator" : "sss.repository.SSSAuthenticator",
     "webui" : "sss.repository.WebInterface"
@@ -252,3 +296,13 @@ class Configuration(object):
     
     def __getattr__(self, attr):
         return self.cfg.get(attr, None)
+        
+if __name__ == "__main__":
+    # if we are run from the command line, run validation over the
+    # specified file
+    if len(sys.argv) != 2:
+        print "Please supply a path to a file to validate"
+        exit()
+    print "Validating Configuration File: " + sys.argv[1]
+    c = Configuration(config_file=sys.argv[1])
+    print "File is valid"
