@@ -149,13 +149,13 @@ class EntryDocument(object):
                     packaging=[], state_uris=[], updated=None, dc_metadata={}, 
                     generator=("http://www.swordapp.org/sss", __version__), 
                     verbose_description=None, treatment=None, original_deposit_uri=None, derived_resource_uris=[], nsmap=None,
-                    xml_source=None):
+                    xml_source=None, other_metadata=None):
         self.ns = Namespaces()
         self.drmap = {None: self.ns.ATOM_NS, "sword" : self.ns.SWORD_NS, "dcterms" : self.ns.DC_NS}
         if nsmap is not None:
             self.drmap = nsmap
             
-        self.other_metadata = {}
+        self.other_metadata = other_metadata if other_metadata is not None else []
         self.dc_metadata = dc_metadata
         self.atom_id = atom_id if atom_id is not None else "urn:uuid:" + str(uuid.uuid4())
         self.updated = updated if updated is not None else datetime.now()
@@ -222,12 +222,8 @@ class EntryDocument(object):
                     else:
                         self.dc_metadata[field] = [element.text.strip()]
                 else:
-                    if element.text is not None: # handle empty elements
-                        if self.other_metadata.has_key(field):
-                            self.other_metadata[field].append(element.text.strip())                        
-                        else:
-                            self.other_metadata[field] = [element.text.strip()]
-        
+                    # add any unhandled elements to the other_metadata
+                    self.other_metadata.append(element)
 
     def _canonical_tag(self, tag):
         ns, field = tag.rsplit("}", 1)
@@ -394,6 +390,10 @@ class EntryDocument(object):
                 dr = etree.SubElement(entry, self.ns.ATOM + "link")
                 dr.set("rel", "http://purl.org/net/sword/terms/derivedResource")
                 dr.set("href", uri)
+
+        # finally, add any foreign markup to the dom
+        for fm in self.other_metadata:
+            entry.append(fm)
 
         return etree.tostring(entry, pretty_print=True)
 
