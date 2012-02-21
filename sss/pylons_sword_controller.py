@@ -112,8 +112,10 @@ class SwordController(WSGIController):
         response.status_int = sword_error.status
         ssslog.info("Returning error (" + str(sword_error.status) + ") - " + str(sword_error.error_uri))
         if not sword_error.empty:
+            ssslog.debug("Returning error document: " + sword_error.error_document)
             response.content_type = "text/xml"
             return sword_error.error_document
+        ssslog.debug("Returning empty body in error response")
         return
 
     def _map_webpy_headers(self, headers):
