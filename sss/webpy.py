@@ -308,7 +308,7 @@ class Collection(SwordHttpHandler):
 
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SwordServer(config, auth)
-        cl = sss.list_collection(collection)
+        cl = ss.list_collection(collection)
         web.header("Content-Type", "text/xml")
         return cl
         
