@@ -254,6 +254,19 @@ class SSS(SwordServer):
         
         # create an empty feed element for the collection
         feed = etree.Element(self.ns.ATOM + "feed", nsmap=self.cmap)
+        
+        title = etree.SubElement(feed, self.ns.ATOM + "title")
+        title.text = "Title: " + id
+        myid = etree.SubElement(feed, self.ns.ATOM + "id")
+        myid.text = self.um.col_uri(id)
+        atomlink = etree.SubElement(feed, self.ns.ATOM + "link")
+        atomlink.set('rel', 'self')
+        atomlink.set('href', self.um.col_uri(id))
+        updated = etree.SubElement(feed, self.ns.ATOM + "updated")
+        updated.text = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        author = etree.SubElement(feed, self.ns.ATOM + "author")
+        authorname = etree.SubElement(author, self.ns.ATOM + "name")
+        authorname.text = "Simple Sword Server"
 
         # if the collection path does not exist, then return the empty feed
         cpath = os.path.join(self.configuration.store_dir, str(id))
@@ -264,9 +277,21 @@ class SSS(SwordServer):
         parts = os.listdir(cpath)
         for part in parts:
             entry = etree.SubElement(feed, self.ns.ATOM + "entry")
+            entrytitle = etree.SubElement(entry, self.ns.ATOM + "title")
+            entrytitle.text = "Title: " + part
+            entryid = etree.SubElement(entry, self.ns.ATOM + "id")
+            entryid.text = self.um.edit_uri(id, part)
+            entryupdated = etree.SubElement(entry, self.ns.ATOM + "updated")
+            entryupdated.text = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+            summary =  etree.SubElement(entry, self.ns.ATOM + "summary")
+            summary.text = "Summary for " + part
             link = etree.SubElement(entry, self.ns.ATOM + "link")
             link.set("rel", "edit")
             link.set("href", self.um.edit_uri(id, part))
+            link2 = etree.SubElement(entry, self.ns.ATOM + "link")
+            link2.set("rel", "alternate")
+            link2.set("type", "text/html")
+            link2.set("href", self.um.edit_uri(id, part))
 
         # pretty print and return
         return etree.tostring(feed, pretty_print=True)

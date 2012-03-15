@@ -51,6 +51,12 @@ DEFAULT_CONFIG = """
     "store_dir" : "./store/",
     # If you are using Apache you should set the store directory in full
     
+    # The directory where incoming content will be temporarily stored
+    "tmp_dir" : "./tmp/",
+    
+    # The chunk size used to copy file streams into and out of the temp directory
+    "copy_chunk_size" : 8096,
+    
     # explicitly set the sword version, so if you're testing validation of
     # service documents you can "break" it.
     "sword_version" : "2.0",

@@ -401,7 +401,8 @@ class SwordController(WSGIController):
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SwordServer(config, auth)
         sd = ss.service_document(path)
-        response.content_type = "text/xml"
+        response.content_type = "application/atomsvc+xml"
+        #response.content_type = "text/xml"
         ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
         return sd
     

@@ -1,4 +1,4 @@
-import web, re, base64, urllib, uuid
+import web, re, base64, urllib, uuid, os
 from web.wsgiserver import CherryPyWSGIServer
 from core import Auth, SwordError, AuthException, DepositRequest, DeleteRequest
 from negotiator import ContentNegotiator, AcceptParameters, ContentType
@@ -73,6 +73,32 @@ STATUS_MAP = {
 # Define a set of handlers for the various URLs defined above to be used by web.py
 
 class SwordHttpHandler(object):
+    
+    def read_to_tmp(self, web):
+        # the incoming body content is in wsgi.input, which is a file-like object
+        # but which only supports "read", not useful extras like "seek", so we
+        # stream this into a temp file, and return a handle to that instead
+        size = web.utils.intget(web.ctx.env.get('CONTENT_LENGTH'), 0) 
+        wsgi_input = web.ctx.env['wsgi.input']
+        if not os.path.exists(config.tmp_dir):
+            os.mkdir(config.tmp_dir)
+        fn = os.path.join(config.tmp_dir, str(uuid.uuid4()))
+        ssslog.info("Reading incoming content of size " + str(size) + "to temp file " + fn)
+        if wsgi_input is not None:
+            with open(fn, "wb") as outfile:
+                while size > 0:
+                    chunk_size = config.copy_chunk_size if size > config.copy_chunk_size else size 
+                    chunk = wsgi_input.rfile.read(chunk_size)
+                    if chunk is None or chunk == "":
+                        break
+                    outfile.write(chunk)
+                    outfile.flush()
+                    os.fsync(outfile.fileno())
+                    size -= chunk_size
+            with open(fn, "r") as tmpfile:
+                return tmpfile
+        return None
+
     def http_basic_authenticate(self, web):
         # extract the appropriate HTTP headers
         auth_header = web.ctx.env.get('HTTP_AUTHORIZATION')
@@ -180,7 +206,118 @@ class SwordHttpHandler(object):
             
         except ValidationException as e:
             raise SwordError(error_uri=Errors.bad_request, msg=e.message)
+    
+    ''' FIXME: this was an experimental version which was supposed to scale
+    def validate_deposit_request(self, web, file_handle, entry_section=None, binary_section=None, multipart_section=None, empty_section=None, allow_multipart=True, allow_empty=False):
+        h = HttpHeaders()
+
+        # map the headers to standard http
+        mapped_headers = self._map_webpy_headers(web.ctx.environ)
+        ssslog.debug("Validating on header dictionary: " + str(mapped_headers))
+  
+        # run the validation
+        try:
+            # there must be both an "atom" and "payload" input or data in web.data()
+            webin = web.input()
+            if len(webin) != 2 and len(webin) > 0:
+                raise ValidationException("Multipart request does not contain exactly 2 parts")
+            if len(webin) >= 2 and not webin.has_key("atom") and not webin.has_key("payload"):
+                raise ValidationException("Multipart request must contain Content-Dispositions with names 'atom' and 'payload'")
+            if len(webin) > 0 and not allow_multipart:
+                raise ValidationException("Multipart request not permitted in this context")
+
+            # if we get to here then we have a valid multipart or no multipart
+            is_multipart = False
+            is_empty = False
             
+            if len(webin) != 2:
+                if file_handle is not None:
+                    file_handle.seek(0, 0)
+                    byte = file_handle.read(1)
+                    if byte == "" and allow_empty:
+                        # the body is empty
+                        ssslog.debug("first byte of deposit request is the empty string")
+                        is_empty = True
+                    else:
+                        ssslog.debug("first byte of deposit request is \"" + byte + "\" ... not an empty request")
+                    file_handle.seek(0, 0)
+                else:
+                    is_empty = True
+                """
+                # NOTE: the wsgi_input is a SizeCheckWrapper object which imperfectly
+                # wraps a file object.  We therefore have to access the "rfile" 
+                # property to interact with the file itself (although that is dangerous,
+                # as the file will be WSGI implementation specific)
+                wsgi_input = web.ctx.env['wsgi.input']
+                # if there is a wsgi input object with seek enabled, it may have already
+                # been read by webpy, so we seek back to the start
+                #if hasattr(wsgi_input, "seek"):
+                if wsgi_input is not None:
+                    # in empty requests, the wsgi input object doesn't have a seek() method
+                    # so we have to check for it
+                    # wsgi_input.rfile.seek(0, 0) 
+                    
+                    # read just one byte out of the file, to see if there's any content
+                    # if there is not, byte will be the empty string
+                    byte = wsgi_input.rfile.read(1)
+                    if byte == "" and allow_empty:
+                        # the body is empty
+                        ssslog.debug("first byte of deposit request is the empty string")
+                        is_empty = True
+                    else:
+                        ssslog.debug("first byte of deposit request is \"" + byte + "\" ... not an empty request")
+                    # wsgi_input.rfile.seek(0, 0)
+                
+                elif wsgi_input is None:
+                    is_empty = True
+                """
+                    
+                # validate whether we allow an empty deposit
+                if is_empty and not allow_empty:
+                    raise ValidationException("No content sent to the server")
+                elif is_empty and allow_empty:
+                    ssslog.info("Validating an empty deposit (could be a control operation)")
+            else:
+                ssslog.info("Validating a multipart deposit")
+                is_multipart = True
+                
+            """
+            if wsgi_input is None or wsgi_input.read().strip() == "": # FIXME: this IS NOT safe to scale
+                if allow_empty:
+                    ssslog.info("Validating an empty deposit (could be a control operation)")
+                    is_empty = True
+                else:
+                    raise ValidationException("No content sent to the server")
+            """
+            """
+            if len(webin) != 2: # if it is not multipart
+                if web.data() is None or web.data().strip() == "": # FIXME: this does not look safe to scale
+                    if allow_empty:
+                        ssslog.info("Validating an empty deposit (could be a control operation)")
+                        is_empty = True
+                    else:
+                        raise ValidationException("No content sent to the server")
+            """
+            
+            
+            is_entry = False
+            content_type = mapped_headers.get("CONTENT-TYPE")
+            if content_type is not None and content_type.startswith("application/atom+xml"):
+                ssslog.info("Validating an atom-only deposit")
+                is_entry = True
+            
+            if not is_entry and not is_multipart and not is_empty:
+                ssslog.info("Validating a binary deposit")
+            
+            section = entry_section if is_entry else multipart_section if is_multipart else empty_section if is_empty else binary_section
+            
+            # now validate the http headers
+            h.validate(mapped_headers, section)
+            
+        except ValidationException as e:
+            raise SwordError(error_uri=Errors.bad_request, msg=e.message)
+        '''
+    
     def get_deposit(self, web, auth=None, atom_only=False):
         # FIXME: this reads files into memory, and therefore does not scale
         # FIXME: this does not deal with the Media Part headers on a multipart deposit
@@ -245,6 +382,79 @@ class SwordHttpHandler(object):
         # now just attach the authentication data and return
         d.auth = auth
         return d
+    
+    ''' FIXME: this was an experimental version which was supposed to scale
+    def get_deposit(self, web, file_handle, auth=None, atom_only=False):
+        # FIXME: this reads files into memory, and therefore does not scale
+        # FIXME: this does not deal with the Media Part headers on a multipart deposit
+        """
+        Take a web.py web object and extract from it the parameters and content required for a SWORD deposit.  This
+        includes determining whether this is an Atom Multipart request or not, and extracting the atom/payload where
+        appropriate.  It also includes extracting the HTTP headers which are relevant to deposit, and for those not
+        supplied providing their defaults in the returned DepositRequest object
+        """
+        d = DepositRequest()
+        
+        # map the webpy headers to something more standard
+        mapped_headers = self._map_webpy_headers(web.ctx.environ)
+        
+        # get the headers that have been provided.  Any headers which have not been provided will
+        # will have default values applied
+        h = HttpHeaders()
+        d.set_from_headers(h.get_sword_headers(mapped_headers))
+        
+        if d.content_type.startswith("application/atom+xml"):
+            atom_only=True
+        
+        empty_request = False
+        if d.content_length == 0:
+            ssslog.info("Received empty deposit request")
+            empty_request = True
+        if d.content_length > config.max_upload_size:
+            raise SwordError(error_uri=Errors.max_upload_size_exceeded, 
+                            msg="Max upload size is " + str(config.max_upload_size) + 
+                            "; incoming content length was " + str(d.content_length))
+        
+        # find out if this is a multipart or not
+        is_multipart = False
+        
+        # FIXME: these headers aren't populated yet, because the webpy api doesn't
+        # appear to have a mechanism to retrieve them.  urgh.
+        entry_part_headers = {}
+        media_part_headers = {}
+        webin = web.input()
+        if len(webin) == 2:
+            ssslog.info("Received multipart deposit request")
+            d.atom = webin['atom']
+            # FIXME: this reads the payload into memory, we need to sort that out
+            # read the zip file from the base64 encoded string
+            d.content = base64.decodestring(webin['payload'])
+            is_multipart = True
+        elif not empty_request:
+            # if this wasn't a multipart, and isn't an empty request, then the data is in web.data().  This could be a binary deposit or
+            # an atom entry deposit - reply on the passed/determined argument to determine which
+            if atom_only:
+                ssslog.info("Received Entry deposit request")
+                d.atom = file_handle.read() # read from the tmp file
+            else:
+                ssslog.info("Received Binary deposit request")
+                d.content = file_handle.read() # read from the tmp file
+                """
+                wsgi_input = web.ctx.env['wsgi.input']
+                if wsgi_input is not None:
+                    wsgi_input.rfile.seek(0, 0)
+                    d.content = wsgi_input.rfile.read()
+                """
+        
+        if is_multipart:
+            d.filename = h.extract_filename(media_part_headers)
+        else:
+            d.filename = h.extract_filename(mapped_headers)
+        
+        # now just attach the authentication data and return
+        d.auth = auth
+        return d
+    '''
         
     def get_delete(self, web, auth=None):
         """
@@ -284,7 +494,8 @@ class ServiceDocument(SwordHttpHandler):
         # if we get here authentication was successful and we carry on (we don't care who authenticated)
         ss = SwordServer(config, auth)
         sd = ss.service_document(sub_path)
-        web.header("Content-Type", "text/xml")
+        web.header("Content-Type", "application/atomsvc+xml")
+        # web.header("Content-Type", "text/xml")
         return sd
 
 class Collection(SwordHttpHandler):
@@ -311,7 +522,7 @@ class Collection(SwordHttpHandler):
         cl = ss.list_collection(collection)
         web.header("Content-Type", "text/xml")
         return cl
-        
+            
     def POST(self, collection):
         """
         POST either an Atom Multipart request, or a simple package into the specified collection
@@ -324,6 +535,14 @@ class Collection(SwordHttpHandler):
         try:
             # authenticate
             auth = self.http_basic_authenticate(web)
+            
+            # FIXME: this was supposed to help us with our scalability, but
+            # unfortunately the way that web.py works, it is not possible to
+            # read the incoming file to disk and still use the other functions
+            # on the web object (e.g. input())
+            
+            # store any body content in a temp file
+            #fh = self.read_to_tmp(web)
             
             # check the validity of the request
             self.validate_deposit_request(web, "6.3.3", "6.3.1", "6.3.2")
