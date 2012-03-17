@@ -24,6 +24,9 @@ class Namespaces(object):
         self.SWORD_NS = "http://purl.org/net/sword/terms/"
         self.SWORD = "{%s}" % self.SWORD_NS
         self.SWORD_PREFIX = "sword"
+        
+        # SWORD State Scheme
+        self.SWORD_STATE = self.SWORD_NS + "state"
 
         # Dublin Core namespace and lxml format
         self.DC_NS = "http://purl.org/dc/terms/"

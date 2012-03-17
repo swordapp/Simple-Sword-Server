@@ -729,7 +729,7 @@ class Statement(object):
     """
     Class representing the Statement; a description of the object as it appears on the server
     """
-    def __init__(self, rdf_file=None, aggregation_uri=None, rem_uri=None, original_deposits=[], aggregates=[], states=[]):
+    def __init__(self, rdf_file=None, aggregation_uri=None, rem_uri=None, original_deposits=None, aggregates=None, states=None):
         """
         The statement has 4 important properties:
         - aggregation_uri   -   The URI of the aggregation in ORE terms
@@ -740,9 +740,9 @@ class Statement(object):
         """
         self.aggregation_uri = aggregation_uri
         self.rem_uri = rem_uri
-        self.original_deposits = original_deposits
-        self.aggregates = aggregates
-        self.states = states
+        self.original_deposits = original_deposits if original_deposits is not None else []
+        self.aggregates = aggregates if aggregates is not None else []
+        self.states = states if states is not None else []
         
         # Namespace map for XML serialisation
         self.ns = Namespaces()
@@ -855,13 +855,25 @@ class Statement(object):
         # create the root atom feed element
         feed = etree.Element(self.ns.ATOM + "feed", nsmap=self.fmap)
 
+        # NOTE: this bit is incorrect, just in for reference, see replacement
+        # implementation
         # create the sword:state term in the root of the feed
+        """
         for state_uri, state_description in self.states:
             state = etree.SubElement(feed, self.ns.SWORD + "state")
             state.set("href", state_uri)
             meaning = etree.SubElement(state, self.ns.SWORD + "stateDescription")
             meaning.text = state_description
-
+        """
+        
+        # create the state categories
+        for state_uri, state_description in self.states:
+            state = etree.SubElement(feed, self.ns.ATOM + "category")
+            state.set("scheme", self.ns.SWORD_STATE)
+            state.set("term", state_uri)
+            state.set("label", "State")
+            state.text = state_description
+        
         # now do an entry for each original deposit
         for (uri, datestamp, format_uri, by, obo) in self.original_deposits:
             # FIXME: this is not an official atom entry yet

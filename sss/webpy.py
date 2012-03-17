@@ -136,11 +136,11 @@ class SwordHttpHandler(object):
     def manage_error(self, sword_error):
         status = STATUS_MAP.get(sword_error.status, "400 Bad Request")
         ssslog.info("Returning error (" + str(sword_error.status) + ") - " + str(sword_error.error_uri))
-        web.ctx.status = status
+        web.ctx.status = str(sword_error.status)
         if not sword_error.empty:
             web.header("Content-Type", "text/xml")
             return sword_error.error_document
-        return
+        return ""
     
     def _map_webpy_headers(self, headers):
         return dict([(c[0][5:].replace("_", "-") if c[0].startswith("HTTP_") else c[0].replace("_", "-"), c[1]) for c in headers.items()])
