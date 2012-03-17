@@ -682,6 +682,8 @@ class SwordController(WSGIController):
             # now actually get hold of the representation of the container and send it to the client
             cont = ss.get_container(path, accept_parameters)
             ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
+            if cont is not None:
+                response.headers["Content-Type"] = accept_parameters.content_type.mimetype()
             return cont
             
         except SwordError as e:

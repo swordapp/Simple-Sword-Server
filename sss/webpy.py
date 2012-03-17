@@ -788,6 +788,8 @@ class Container(SwordHttpHandler):
             
             # now actually get hold of the representation of the container and send it to the client
             cont = ss.get_container(path, accept_parameters)
+            if cont is not None:
+                web.header("Content-Type", accept_parameters.content_type.mimetype())
             return cont
             
         except SwordError as e:
