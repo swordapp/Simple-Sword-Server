@@ -957,6 +957,7 @@ class WebUI(SwordHttpHandler):
     """
     def GET(self, path=None):
         w = WebInterface(config)
+        web.header("Content-Type", "text/html")
         return w.get(path)
 
 class Part(SwordHttpHandler):

@@ -1251,7 +1251,7 @@ class ItemPage(WebPage):
         frag += self._layout_sections(md_frag, file_frag)
         
         head_frag = "<link rel=\"http://purl.org/net/sword/terms/edit\" href=\"" + self.um.edit_uri(collection, id) + "\"/>"
-        head_frag += "<link rel=\"http://purl.org/net/sword/terms/statement\" type=\"application/atom+xml\" href=\"" + self.um.state_uri(collection, id, "atom") + "\"/>"
+        head_frag += "<link rel=\"http://purl.org/net/sword/terms/statement\" type=\"application/atom+xml;type=feed\" href=\"" + self.um.state_uri(collection, id, "atom") + "\"/>"
         head_frag += "<link rel=\"http://purl.org/net/sword/terms/statement\" type=\"application/rdf+xml\" href=\"" + self.um.state_uri(collection, id, "ore") + "\"/>"
         
         return self._wrap_html("Item: " + id, frag, head_frag)
