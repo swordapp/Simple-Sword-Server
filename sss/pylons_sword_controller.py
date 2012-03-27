@@ -164,6 +164,82 @@ class SwordController(WSGIController):
             is_empty = False
             #if len(webin) != 2: # if it is not multipart
                 # FIXME: this is reading everything in, and should be re-evaluated for performance/scalability
+            # wsgi_input = request.environ['wsgi.input']
+            f = request.body_file
+            f.seek(0, 0)
+            
+            # FIXME: can't we just look at the Content-Type header????
+            
+            # read a byte in, to see if the body is empty
+            if f is not None:
+                byte = f.read(1)
+                if byte == "" and allow_empty:
+                    ssslog.debug("first byte of deposit request is the empty string")
+                    is_empty = True
+                else:
+                    ssslog.debug("first byte of deposit request is \"" + str(byte) + "\" ... not an empty request")
+                f.seek(0, 0)
+            else:
+                is_empty = True
+                
+            # validate whether we allow an empty deposit
+            if is_empty and not allow_empty:
+                raise ValidationException("No content sent to the server")
+            elif is_empty and allow_empty:
+                ssslog.info("Validating an empty deposit (could be a control operation)")
+            
+            #else:
+            #    ssslog.info("Validating a multipart deposit")
+            #    is_multipart = True
+            
+            is_entry = False
+            content_type = mapped_headers.get("CONTENT-TYPE")
+            if content_type is not None and content_type.startswith("application/atom+xml"):
+                ssslog.info("Validating an atom-only deposit")
+                is_entry = True
+            
+            if not is_entry and not is_multipart and not is_empty:
+                ssslog.info("Validating a binary deposit")
+            
+            section = entry_section if is_entry else multipart_section if is_multipart else empty_section if is_empty else binary_section
+            
+            # now validate the http headers
+            h.validate(mapped_headers, section)
+            
+        except ValidationException as e:
+            raise SwordError(error_uri=Errors.bad_request, msg=e.message)
+        
+    ''' ORIGINAL NOT SCALEABLE IMPL    
+    def validate_deposit_request(self, entry_section=None, binary_section=None, multipart_section=None, empty_section=None, allow_multipart=True, allow_empty=False):
+        h = HttpHeaders()
+
+        # map the headers to standard http
+        mapped_headers = self._map_webpy_headers(request.environ)
+        ssslog.debug("Validating on header dictionary: " + str(mapped_headers))
+  
+        # run the validation
+        try:
+            # there must be both an "atom" and "payload" input or data in web.data()
+            
+            # FIXME: deposit does NOT support multipart
+            if request.environ["CONTENT_TYPE"].startswith("multipart"):
+                raise SwordError(error_uri=Errors.method_not_allowed, msg="Pylons implementation does not currently support multipart/related requests")
+            """
+            # leave this out until we can get multipart sorted (at a later date)
+            webin = request.POST
+            if len(webin) != 2 and len(webin) > 0:
+                raise ValidationException("Multipart request does not contain exactly 2 parts")
+            if len(webin) >= 2 and not webin.has_key("atom") and not webin.has_key("payload"):
+                raise ValidationException("Multipart request must contain Content-Dispositions with names 'atom' and 'payload'")
+            if len(webin) > 0 and not allow_multipart:
+                raise ValidationException("Multipart request not permitted in this context")
+            """
+            
+            # if we get to here then we have a valid multipart or no multipart
+            is_multipart = False
+            is_empty = False
+            #if len(webin) != 2: # if it is not multipart
+                # FIXME: this is reading everything in, and should be re-evaluated for performance/scalability
             wsgi_input = request.environ['wsgi.input']
             if hasattr(wsgi_input, "seek"):
                 # in empty requests, the wsgi input object doesn't have a seek() method
@@ -196,7 +272,85 @@ class SwordController(WSGIController):
             
         except ValidationException as e:
             raise SwordError(error_uri=Errors.bad_request, msg=e.message)
+    '''
+    
+    def get_deposit(self, auth=None, atom_only=False):
+        # FIXME: this does not deal with the Media Part headers on a multipart deposit
+        """
+        Take a request object and extract from it the parameters and content required for a SWORD deposit.  This
+        includes determining whether this is an Atom Multipart request or not, and extracting the atom/payload where
+        appropriate.  It also includes extracting the HTTP headers which are relevant to deposit, and for those not
+        supplied providing their defaults in the returned DepositRequest object
+        """
+        d = DepositRequest()
+        
+        # map the webpy headers to something more standard
+        mapped_headers = self._map_webpy_headers(request.environ)
+        
+        # get the headers that have been provided.  Any headers which have not been provided will
+        # will have default values applied
+        h = HttpHeaders()
+        d.set_from_headers(h.get_sword_headers(mapped_headers))
+        
+        if d.content_type.startswith("application/atom+xml"):
+            atom_only=True
+        
+        empty_request = False
+        if d.content_length == 0:
+            ssslog.info("Received empty deposit request")
+            empty_request = True
+        if config.max_upload_size is not None and d.content_length > config.max_upload_size:
+            raise SwordError(error_uri=Errors.max_upload_size_exceeded, 
+                            msg="Max upload size is " + str(config.max_upload_size) + 
+                            "; incoming content length was " + str(d.content_length))
+        
+        # FIXME: this method does NOT support multipart
+        # find out if this is a multipart or not
+        is_multipart = False
+        
+        # FIXME: these headers aren't populated yet, because the webpy api doesn't
+        # appear to have a mechanism to retrieve them.  urgh.
+        #entry_part_headers = {}
+        #media_part_headers = {}
+        #webin = request.POST
+        #ssslog.debug(webin)
+        #if len(webin) == 2:
+        #    ssslog.info("Received multipart deposit request")
+        #    d.atom = webin['atom']
+            # FIXME: this reads the payload into memory, we need to sort that out
+            # read the zip file from the base64 encoded string
+        #    d.content = base64.decodestring(webin['payload'])
+        #    is_multipart = True
+        #elif not empty_request:
+        if not empty_request:
+            # for this section, we have to reset the file pointer in the body_file
+            # part of the request back to the start, since it may have 
+            # already been read once
+            f = request.body_file
+            f.seek(0, 0)
             
+            # if this wasn't a multipart, and isn't an empty request, then read the 
+            # data from the body_file
+            if atom_only:
+                # we don't worry about scalability here - the entries should be
+                # generally small
+                ssslog.info("Received Entry deposit request")
+                d.atom = f.read()
+            else:
+                ssslog.info("Received Binary deposit request")
+                # FIXME: this is reading everything in, and should be re-evaluated for performance/scalability
+                d.content_file = f
+        
+        if is_multipart:
+            d.filename = h.extract_filename(media_part_headers)
+        else:
+            d.filename = h.extract_filename(mapped_headers)
+        
+        # now just attach the authentication data and return
+        d.auth = auth
+        return d
+    
+    ''' ORIGINAL NOT SCALEABLE IMPL    
     def get_deposit(self, auth=None, atom_only=False):
         # FIXME: this reads files into memory, and therefore does not scale
         # FIXME: this does not deal with the Media Part headers on a multipart deposit
@@ -272,7 +426,8 @@ class SwordController(WSGIController):
         # now just attach the authentication data and return
         d.auth = auth
         return d
-        
+    '''
+    
     def get_delete(self, web, auth=None):
         """
         Take a web.py web object and extract from it the parameters and content required for a SWORD delete request.

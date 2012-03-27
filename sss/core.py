@@ -1,4 +1,4 @@
-import web, os, base64, uuid
+import web, os, base64, uuid, StringIO
 from lxml import etree
 from datetime import datetime
 from spec import Namespaces, HttpHeaders, Errors
@@ -650,7 +650,8 @@ class DepositRequest(SWORDRequest):
 
         # content related
         self.content_type = "application/octet-stream"
-        self.content = None
+        self._content = None
+        self._content_file = None
         self.atom = None
         self.entry_document = None
         self.filename = "unnamed.file"
@@ -661,7 +662,32 @@ class DepositRequest(SWORDRequest):
             if self.atom is not None:
                 self.entry_document = EntryDocument(xml_source=self.atom)
         return self.entry_document
-
+    
+    def has_content(self):
+        return self._content is not None or self._content_file is not None
+    
+    @property
+    def content(self):
+        # FIXME: this is for back-compat only; use self.content_file
+        if self._content is not None:
+            return self._content
+        if self._content is None and self.content_file is not None:
+            return self.content_file.read()
+    
+    @content.setter
+    def content(self, content):
+        self._content = content
+    
+    @property
+    def content_file(self):
+        if self._content_file is None and self._content is not None:
+            self._content_file = StringIO.StringIO(self._content)
+        return self._content_file
+    
+    @content_file.setter
+    def content_file(self, fh):
+        self._content_file = fh
+        
 class DepositResponse(object):
     """
     Class to represent the response to a deposit request
