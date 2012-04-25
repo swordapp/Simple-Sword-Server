@@ -1,5 +1,5 @@
 from pylons import request, response, session, tmpl_context as c
-from pylons.controllers.util import abort, redirect_to
+from pylons.controllers.util import abort, redirect
 from pylons.controllers import WSGIController
 from pylons.templating import render_mako as render
 
@@ -664,7 +664,7 @@ class SwordController(WSGIController):
 
         # either send the client a redirect, or stream the content out
         if media_resource.redirect:
-            redirect_to(media_resource.url, _code=302) # FOUND (not SEE OTHER)
+            redirect(media_resource.url, _code=302) # FOUND (not SEE OTHER)
             return
         else:
             response.content_type = media_resource.content_type
