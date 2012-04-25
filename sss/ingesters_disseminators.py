@@ -204,6 +204,7 @@ class DefaultEntryIngester(object):
         
         ssslog.debug("Existing Metadata (before new ingest): " + str(metadata))
         
+        ssslog.debug("Incoming atom: " + atom)
         entry = etree.fromstring(atom)
 
         # go through each element in the atom entry and just process the ones we care about

@@ -10,4 +10,5 @@ setup(
     author_email='rich.d.jones@gmail.com',
     url='http://www.swordapp.org/',
     packages=find_packages(exclude=['tests']),
+    setup_requires=["web.py", "lxml==2.3.4"]
 )
