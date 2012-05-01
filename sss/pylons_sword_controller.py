@@ -610,7 +610,7 @@ class SwordController(WSGIController):
             # created
             ssslog.info("Item created")
             response.content_type = "application/atom+xml;type=entry"
-            response.headers["Location"] = result.location
+            response.headers["Location"] = str(result.location) # explicit cast to string
             response.status_int = 201
             response.status = "201 Created"
             if config.return_deposit_receipt:
@@ -744,7 +744,7 @@ class SwordController(WSGIController):
             result = ss.add_content(path, deposit)
             
             response.content_type = "application/atom+xml;type=entry"
-            response.headers["Location"] = result.location
+            response.headers["Location"] = str(result.location) # explict cast to str
             response.status_int = 201
             response.status = "201 Created"
             if config.return_deposit_receipt:
@@ -869,7 +869,7 @@ class SwordController(WSGIController):
             ss = SwordServer(config, auth)
             result = ss.replace(path, deposit)
             
-            response.headers["Location"] = result.location
+            response.headers["Location"] = str(result.location) # explicit cast to str
             if config.return_deposit_receipt:
                 response.content_type = "application/atom+xml;type=entry"
                 response.status_int = 200
@@ -919,7 +919,7 @@ class SwordController(WSGIController):
             # in this case the spec is incorrect (correction need to be implemented
             # asap)
             
-            response.headers["Location"] = result.location
+            response.headers["Location"] = str(result.location) # explict cast to str
             response.status_int = 200
             response.status = "200 OK"
             if config.return_deposit_receipt:
