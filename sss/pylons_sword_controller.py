@@ -669,7 +669,7 @@ class SwordController(WSGIController):
         else:
             response.content_type = media_resource.content_type
             if media_resource.packaging is not None:
-                response.headers["Packaging"] = media_resource.packaging
+                response.headers["Packaging"] = str(media_resource.packaging)
             f = open(media_resource.filepath, "r")
             response.status_int = 200
             response.status = "200 OK"
@@ -838,7 +838,7 @@ class SwordController(WSGIController):
             cont = ss.get_container(path, accept_parameters)
             ssslog.info("Returning " + response.status + " from request on " + inspect.stack()[0][3])
             if cont is not None:
-                response.headers["Content-Type"] = accept_parameters.content_type.mimetype()
+                response.headers["Content-Type"] = str(accept_parameters.content_type.mimetype())
             return cont
             
         except SwordError as e:
@@ -1007,7 +1007,7 @@ class SwordController(WSGIController):
         edit_uri = ss.get_edit_uri()
         response.status_int = 303
         response.status = "303 See Other"
-        response.headers["Content-Location"] = edit_uri
+        response.headers["Content-Location"] = str(edit_uri)
         return
         
     def _GET_webui(self, path=None):
