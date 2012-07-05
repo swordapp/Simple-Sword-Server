@@ -658,6 +658,10 @@ class MediaResource(MediaResourceContent):
             # so if the deposit object has an atom part we should return an error
             deposit = self.get_deposit(web, auth)
             
+            # set in_progress to None, since this is not relevant to this kind of deposit
+            # the repository can then use that as a cue that it should leave the state as-is
+            deposit.in_progress = None
+            
             # now replace the content of the container
             ss = SwordServer(config, auth)
             result = ss.replace(path, deposit)
@@ -927,6 +931,8 @@ class StatementHandler(SwordHttpHandler):
             # which would be weird from a client perspective
             if not ss.container_exists(path):
                 raise SwordError(status=404, empty=True)
+            
+            # FIXME: need to include a Content-Type header
             
             # now actually get hold of the representation of the statement and send it to the client
             cont = ss.get_statement(path)

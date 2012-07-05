@@ -505,8 +505,9 @@ class SSS(SwordServer):
         edit_uri = self.um.edit_uri(collection, id)
         
         # State information
-        state_uri = self.in_progress_uri if deposit.in_progress else self.archived_uri
-        state_description = self.states[state_uri]
+        if deposit.in_progress is not None:
+            state_uri = self.in_progress_uri if deposit.in_progress else self.archived_uri
+            state_description = self.states[state_uri]
 
         # create the new statement
         s = Statement()
