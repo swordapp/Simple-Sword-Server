@@ -457,6 +457,7 @@ class SSS(SwordServer):
         self.check_deposit_errors(deposit)
 
         collection, id = self.um.interpret_oid(oid)
+        old_statement = self.dao.load_statement(collection, id)
 
         # does the object directory exist?  If not, we can't do a deposit
         if not self.exists(oid):
@@ -505,6 +506,8 @@ class SSS(SwordServer):
         edit_uri = self.um.edit_uri(collection, id)
         
         # State information
+        state_uri = None
+        state_description = None
         if deposit.in_progress is not None:
             state_uri = self.in_progress_uri if deposit.in_progress else self.archived_uri
             state_description = self.states[state_uri]
@@ -517,7 +520,11 @@ class SSS(SwordServer):
             by = deposit.auth.username if deposit.auth is not None else None
             obo = deposit.auth.on_behalf_of if deposit.auth is not None else None
             s.original_deposit(deposit_uri, datetime.now(), deposit.packaging, by, obo)
-        s.add_state(state_uri, state_description)
+        if state_uri is not None:
+            s.add_state(state_uri, state_description)
+        else:
+            for old_state_uri, old_state_desc in old_statement.states:
+                s.add_state(old_state_uri, old_state_desc)
         s.aggregates = derived_resource_uris
 
         # store the statement by itself
