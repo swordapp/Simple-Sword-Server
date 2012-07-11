@@ -74,6 +74,12 @@ STATUS_MAP = {
 
 class SwordHttpHandler(object):
     
+    def OPTIONS(self, collection):
+        web.header('Access-Control-Allow-Origin', '*')
+        web.header('Access-Control-Allow-Headers', 'Content-Disposition, Content-Type, Packaging, Authorization')
+        web.header('Access-Control-Allow-Method', '*')
+        return
+    
     def read_to_tmp(self, web):
         # the incoming body content is in wsgi.input, which is a file-like object
         # but which only supports "read", not useful extras like "seek", so we
@@ -103,6 +109,10 @@ class SwordHttpHandler(object):
         # extract the appropriate HTTP headers
         auth_header = web.ctx.env.get('HTTP_AUTHORIZATION')
         obo = web.ctx.env.get(HEADER_MAP[HttpHeaders.on_behalf_of])
+        
+        web.header('Access-Control-Allow-Origin', '*')
+        web.header('Access-Control-Allow-Headers', 'Content-Disposition, Content-Type, Packaging, Authorization')
+        web.header('Access-Control-Allow-Method', '*')
 
         # if we're not supplied with an auth header, bounce
         if auth_header is None:
