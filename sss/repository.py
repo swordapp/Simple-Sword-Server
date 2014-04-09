@@ -1273,11 +1273,16 @@ class ItemPage(WebPage):
         return frag
         
     def _layout_files(self, statement):
-        frag = "<h2>Files</h2>"
+        frag = "<h2>Original Deposit Files</h2>"
         frag += "<table border=\"1\"><tr><th>URI</th><th>deposited on</th><th>format</th><th>deposited by</th><th>on behalf of</th></tr>"
         for uri, deposit_time, format, by, obo in statement.original_deposits:
             frag += "<tr><td><a href=\"" + uri + "\">" + uri + "</a></td><td>" + str(deposit_time) + "</td><td>" + format
             frag += "</td><td>" + by + "</td><td>" + str(obo) + "</td></tr>"
+        frag += "</table>"
+        frag += "<h2>Derived Files</h2>"
+        frag += "<table border=\"1\"><tr><th>URI</th></tr>"
+        for uri in statement.aggregates:
+            frag += "<tr><td><a href=\"" + uri + "\">" + uri + "</a></td>"
         frag += "</table>"
         return frag
     
