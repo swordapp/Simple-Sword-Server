@@ -1,4 +1,4 @@
-import web, os, base64, uuid, StringIO
+import uuid, StringIO
 from lxml import etree
 from datetime import datetime
 from spec import Namespaces, HttpHeaders, Errors
