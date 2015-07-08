@@ -669,11 +669,10 @@ class DepositRequest(SWORDRequest):
     @property
     def content(self):
         # FIXME: this is for back-compat only; use self.content_file
-        if self._content is not None:
-            return self._content
         if self._content is None and self.content_file is not None:
-            return self.content_file.read()
-    
+            self.content = self.content_file.read()
+        return self._content
+
     @content.setter
     def content(self, content):
         self._content = content
