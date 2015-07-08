@@ -177,13 +177,16 @@ DEFAULT_CONFIG = """
 """
         
 class Configuration(object):
-    def __init__(self, config_file=None):
-        self.SSS_CONFIG_FILE = SSS_CONFIG_FILE  # default
-        if config_file is not None:
-            self.SSS_CONFIG_FILE = config_file
-        
-        # extract the configuration from the json object
-        self.cfg = self._load_json()
+    def __init__(self, config_file=None, config_obj=None):
+        if config_obj is not None:
+            self.cfg = config_obj
+        else:
+            self.SSS_CONFIG_FILE = SSS_CONFIG_FILE  # default
+            if config_file is not None:
+                self.SSS_CONFIG_FILE = config_file
+
+            # extract the configuration from the json object
+            self.cfg = self._load_json()
         
         # FIXME: we might need to do some work on these:
         # self.base_url = "http://localhost:%s/" % (sys.argv[1] if len(sys.argv) > 1 else '8080')
