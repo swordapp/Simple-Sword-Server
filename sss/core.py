@@ -145,10 +145,10 @@ class Authenticator(object):
 
 class EntryDocument(object):
 
-    def __init__(self, atom_id=None, alternate_uri=None, content_uri=None, edit_uri=None, se_uri=None, em_uris=[], 
-                    packaging=[], state_uris=[], updated=None, dc_metadata={}, 
+    def __init__(self, atom_id=None, alternate_uri=None, content_uri=None, edit_uri=None, se_uri=None, em_uris=None,
+                    packaging=None, state_uris=None, updated=None, dc_metadata=None,
                     generator=("http://www.swordapp.org/sss", __version__), 
-                    verbose_description=None, treatment=None, original_deposit_uri=None, derived_resource_uris=[], nsmap=None,
+                    verbose_description=None, treatment=None, original_deposit_uri=None, derived_resource_uris=None, nsmap=None,
                     xml_source=None, other_metadata=None):
         self.ns = Namespaces()
         self.drmap = {None: self.ns.ATOM_NS, "sword" : self.ns.SWORD_NS, "dcterms" : self.ns.DC_NS}
@@ -156,7 +156,7 @@ class EntryDocument(object):
             self.drmap = nsmap
             
         self.other_metadata = other_metadata if other_metadata is not None else []
-        self.dc_metadata = dc_metadata
+        self.dc_metadata = dc_metadata if dc_metadata is not None else {}
         self.atom_id = atom_id if atom_id is not None else "urn:uuid:" + str(uuid.uuid4())
         self.updated = updated if updated is not None else datetime.now()
         self.generator = generator
@@ -165,12 +165,12 @@ class EntryDocument(object):
         self.alternate_uri = alternate_uri
         self.content_uri = content_uri
         self.edit_uri = edit_uri
-        self.em_uris = em_uris
+        self.em_uris = em_uris if em_uris is not None else []
         self.se_uri = se_uri
-        self.packaging = packaging
-        self.state_uris = state_uris
+        self.packaging = packaging if packaging is not None else []
+        self.state_uris = state_uris if state_uris is not None else []
         self.original_deposit_uri = original_deposit_uri
-        self.derived_resource_uris = derived_resource_uris
+        self.derived_resource_uris = derived_resource_uris if derived_resource_uris is not None else []
         
         # we may have been passed the xml_source argument, in which case we want
         # to load from a string
@@ -508,25 +508,25 @@ class ServiceDocument(object):
 # them to exchange messages agnostically to the interface
 
 class SwordError(Exception):
-    def __init__(self, error_uri=None, msg=None, status=None, verbose_description=None, empty=False):
+    def __init__(self, error_uri=None, msg=None, status=None, verbose_description=None, empty=False, author="SSS", treatment=None):
         self.ns = Namespaces()
         self.emap = {"sword" : self.ns.SWORD_NS, "atom" : self.ns.ATOM_NS}
         
         self.error_uri = error_uri if error_uri is not None else Errors.bad_request
         self.status = status if status is not None else Errors().get_status(self.error_uri)
         if not empty:
-            self.error_document = self._generate_error_document(msg, verbose_description)
+            self.error_document = self._generate_error_document(msg, verbose_description, author, treatment)
         else:
             self.error_document = ""
         self.empty = empty
         
-    def _generate_error_document(self, msg, verbose_description):
+    def _generate_error_document(self, msg, verbose_description, author="SSS", treatment=None):
         entry = etree.Element(self.ns.SWORD + "error", nsmap=self.emap)
         entry.set("href", self.error_uri)
 
-        author = etree.SubElement(entry, self.ns.ATOM + "author")
-        name = etree.SubElement(author, self.ns.ATOM + "name")
-        name.text = "SSS"
+        ael = etree.SubElement(entry, self.ns.ATOM + "author")
+        name = etree.SubElement(ael, self.ns.ATOM + "name")
+        name.text = author
 
         title = etree.SubElement(entry, self.ns.ATOM + "title")
         title.text = "ERROR: " + self.error_uri
@@ -549,8 +549,11 @@ class SwordError(Exception):
         summary.text = text
 
         # treatment
-        treatment = etree.SubElement(entry, self.ns.SWORD + "treatment")
-        treatment.text = "processing failed"
+        treatment_el = etree.SubElement(entry, self.ns.SWORD + "treatment")
+        if treatment is None:
+            treatment_el.text = "processing failed"
+        else:
+            treatment_el.text = treatment
         
         # verbose description
         if verbose_description is not None:
