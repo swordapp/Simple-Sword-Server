@@ -114,7 +114,7 @@ class SwordServer(object):
         """
         raise NotImplementedError()
 
-    def get_statement(self, path):
+    def get_statement(self, path, type=None):
         raise NotImplementedError()
 
     # NOT PART OF STANDARD, BUT USEFUL    

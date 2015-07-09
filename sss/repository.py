@@ -916,9 +916,17 @@ class SSS(SwordServer):
 
         return dr
 
-    def get_statement(self, oid):
-        accept_parameters, path = self.um.interpret_statement_path(oid)
+    def get_statement(self, oid, type=None):
+        # interpret the incoming data, to support either path-based identification or type based
+        path = oid
+        accept_parameters = None
+        if type is not None:
+            accept_parameters = AcceptParameters(ContentType(type))
+        else:
+            accept_parameters, path = self.um.interpret_statement_path(oid)
         collection, id = self.um.interpret_oid(path)
+
+        # now serve the relevant statement
         if accept_parameters.content_type.mimetype() == "application/rdf+xml":
             return self.dao.get_statement_content(collection, id)
         elif accept_parameters.content_type.mimetype() == "application/atom+xml;type=feed":
