@@ -6,7 +6,7 @@ Author: Richard Jones
 Introduction
 ------------
 
-The Simple Sword Server has to uses:
+The Simple Sword Server has 2 uses:
 
 1/ It is a server library for python servers to use to be SWORDv2 compatible
 2/ It is a stand-alone server which provides a reference implementation of the SWORD 2.0 specification
@@ -14,7 +14,13 @@ The Simple Sword Server has to uses:
 Prerequisites
 -------------
 
-SSS depends on web.py and lxml, so you will need to easy_install both of these before proceeding.  You will need to have installed libxml2 and libxslt1.1 for lxml to install.
+The core SSS depends on lxml, so you will need to easy_install that before proceeding, or run the setup.py with pip 
+
+You will need to have installed libxml2 and libxslt1.1 for lxml to install.
+
+Depending on whether you plan to use the web.by or the pylons front-end, you will then need to install the framework
+yourself, as the setup.py will not do that for you (to save having to install an entire framework that you're not
+going to use).
 
 Configuration
 -------------
